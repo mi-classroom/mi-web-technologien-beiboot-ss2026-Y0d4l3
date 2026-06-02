@@ -1,232 +1,99 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="de" data-bs-theme="dark">
 
 <head>
   <meta charset="UTF-8">
   <title>Gestenerkennung – WebTech SS 2026</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
   <style>
-    * { box-sizing: border-box; }
+    body    { font-family: monospace; }
+    canvas  { transform: scaleX(-1); } /* mirror for natural selfie view */
 
-    body {
-      display: flex;
-      flex-direction: column;
-      font-family: monospace;
-      background-color: #1e1e1e;
-      color: #d4d4d4;
-      margin: 0;
-      padding: 20px;
-      gap: 16px;
-    }
-
-    header h1 {
-      margin: 0 0 4px 0;
-      font-size: 18px;
-      color: #9cdcfe;
-    }
-
-    header p {
-      margin: 0;
-      font-size: 12px;
-      color: #888;
-    }
-
-    .main-row {
-      display: flex;
-      gap: 20px;
-      align-items: flex-start;
-    }
-
-    .video-container {
-      position: relative;
-      flex-shrink: 0;
-    }
-
-    video {
-      display: none;
-    }
-
-    canvas {
-      display: block;
-      border: 2px solid #007acc;
-      border-radius: 8px;
-      background-color: #000;
-      /* Mirror canvas so display matches natural selfie view.
-         MediaPipe coordinates remain in raw image space – gesture math
-         accounts for this (see docs/gestures.md). */
-      transform: scaleX(-1);
-    }
-
-    .side-panel {
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-      min-width: 340px;
-      max-width: 400px;
-    }
-
-    .panel-box {
-      background: #2d2d2d;
-      padding: 14px;
-      border-radius: 8px;
-      border: 1px solid #444;
-    }
-
-    .panel-box h2 {
-      margin: 0 0 12px 0;
-      font-size: 13px;
-      color: #9cdcfe;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-
-    /* ── Gesture progress bars ── */
-    .gesture-row {
-      margin-bottom: 14px;
-    }
-
-    .gesture-row:last-child {
-      margin-bottom: 0;
-    }
-
-    .gesture-label {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 12px;
-      margin-bottom: 5px;
-      color: #d4d4d4;
-    }
-
+    /* status indicator dot – no Bootstrap equivalent */
     .status-dot {
-      width: 8px;
-      height: 8px;
+      width: 8px; height: 8px;
       border-radius: 50%;
-      background: #444;
+      background: #555;
+      display: inline-block;
       flex-shrink: 0;
-      transition: background 0.1s;
-    }
-    .status-dot.active   { background: #4ec9b0; }
-    .status-dot.cooldown { background: #f59e0b; }
-
-    .progress-track {
-      background: #1a1a1a;
-      border-radius: 4px;
-      height: 10px;
-      overflow: hidden;
+      transition: background 0.15s;
     }
 
-    .progress-fill {
-      height: 100%;
-      border-radius: 4px;
-      width: 0%;
-      transition: width 0.05s linear, background 0.1s;
-      background: #007acc;
-    }
-    .progress-fill.active   { background: #4ec9b0; }
-    .progress-fill.cooldown { background: #f59e0b; }
-
-    /* ── Last triggered gesture ── */
-    #lastGestureBox {
-      margin-top: 14px;
-      padding: 10px 12px;
-      background: #1a1a1a;
-      border-radius: 6px;
-      border: 1px solid #3a3a3a;
-      min-height: 60px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-    }
-
-    #lastGestureBox .empty-hint {
-      font-size: 11px;
-      color: #555;
-    }
-
-    .gesture-name {
-      font-size: 28px;
-      font-weight: bold;
-      color: #4ec9b0;
-      animation: pop 0.2s ease-out;
-    }
-
-    .gesture-time {
-      font-size: 11px;
-      color: #666;
-      margin-top: 2px;
-    }
-
+    /* pop-in animation when gesture fires */
     @keyframes pop {
       from { transform: scale(0.85); opacity: 0.6; }
       to   { transform: scale(1);    opacity: 1; }
     }
-
-    /* ── Raw data box ── */
-    #rawData {
-      font-size: 11px;
-      white-space: pre;
-      overflow-x: auto;
-      color: #b5cea8;
-      line-height: 1.5;
-    }
+    .gesture-triggered { animation: pop 0.2s ease-out; }
   </style>
 </head>
 
-<body>
+<body class="p-3">
 
-  <header>
-    <h1>Gestenerkennung – Prototyp (Issue #2)</h1>
-    <p>
-      Strecke den <strong style="color:#4ec9b0">rechten Arm</strong> seitlich aus und halte 1 s → Vorwärts &nbsp;|&nbsp;
-      <strong style="color:#4ec9b0">Linken Arm</strong> seitlich und halte 1 s → Rückwärts
+  <header class="mb-3">
+    <h1 class="h5 text-info mb-1">Gestenerkennung – Prototyp (Issue #2)</h1>
+    <p class="text-secondary small mb-0">
+      Strecke den <strong class="text-success">rechten Arm</strong> seitlich aus und halte 1 s → Vorwärts &nbsp;|&nbsp;
+      <strong class="text-success">linken Arm</strong> seitlich und halte 1 s → Rückwärts
     </p>
   </header>
 
-  <div class="main-row">
-    <div class="video-container">
-      <video id="input_video" width="640" height="480" autoplay playsinline></video>
-      <canvas id="output_canvas" width="640" height="480"></canvas>
+  <div class="d-flex gap-3 align-items-start">
+
+    <!-- Canvas -->
+    <div class="flex-shrink-0">
+      <video id="input_video" width="640" height="480" autoplay playsinline class="d-none"></video>
+      <canvas id="output_canvas" width="640" height="480" class="d-block rounded border border-primary"></canvas>
     </div>
 
-    <div class="side-panel">
+    <!-- Side panel -->
+    <div class="d-flex flex-column gap-3" style="min-width: 340px; max-width: 420px;">
 
-      <!-- Gesture status panel -->
-      <div class="panel-box">
-        <h2>Gestenstatus</h2>
+      <!-- Gesture status card -->
+      <div class="card">
+        <div class="card-body">
+          <h6 class="card-title text-info text-uppercase small mb-3">Gestenstatus</h6>
 
-        <div class="gesture-row">
-          <div class="gesture-label">
-            <span class="status-dot" id="dot-forward"></span>
-            Vorwärts → &nbsp;<span style="color:#555">(rechter Arm rechts, ≥1 s)</span>
+          <!-- Forward -->
+          <div class="mb-3">
+            <div class="d-flex align-items-center gap-2 small mb-1">
+              <span class="status-dot" id="dot-forward"></span>
+              Vorwärts → <span class="text-secondary">(rechter Arm rechts, ≥1 s)</span>
+            </div>
+            <div class="progress" style="height: 10px;">
+              <div id="bar-forward" class="progress-bar" style="width: 0%; transition: width 0.05s linear;"></div>
+            </div>
           </div>
-          <div class="progress-track">
-            <div class="progress-fill" id="bar-forward"></div>
-          </div>
-        </div>
 
-        <div class="gesture-row">
-          <div class="gesture-label">
-            <span class="status-dot" id="dot-backward"></span>
-            ← Rückwärts &nbsp;<span style="color:#555">(linker Arm links, ≥1 s)</span>
+          <!-- Backward -->
+          <div class="mb-3">
+            <div class="d-flex align-items-center gap-2 small mb-1">
+              <span class="status-dot" id="dot-backward"></span>
+              ← Rückwärts <span class="text-secondary">(linker Arm links, ≥1 s)</span>
+            </div>
+            <div class="progress" style="height: 10px;">
+              <div id="bar-backward" class="progress-bar" style="width: 0%; transition: width 0.05s linear;"></div>
+            </div>
           </div>
-          <div class="progress-track">
-            <div class="progress-fill" id="bar-backward"></div>
-          </div>
-        </div>
 
-        <div id="lastGestureBox">
-          <span class="empty-hint">Noch keine Geste erkannt.</span>
+          <!-- Last triggered gesture -->
+          <div id="lastGestureBox"
+               class="rounded border p-2 text-center d-flex flex-column align-items-center justify-content-center"
+               style="min-height: 64px;">
+            <span class="text-secondary small">Noch keine Geste erkannt.</span>
+          </div>
         </div>
       </div>
 
-      <!-- Raw data panel -->
-      <div class="panel-box">
-        <h2>Rohdaten (Schlüssel-Landmarks)</h2>
-        <div id="rawData">Warte auf Kamera…</div>
+      <!-- Raw data card -->
+      <div class="card">
+        <div class="card-body">
+          <h6 class="card-title text-info text-uppercase small mb-2">Rohdaten (Schlüssel-Landmarks)</h6>
+          <pre id="rawData" class="text-success small mb-0" style="overflow-x: auto;">Warte auf Kamera…</pre>
+        </div>
       </div>
 
     </div>
@@ -257,15 +124,14 @@
     // "Backward" = person's LEFT arm extended to their LEFT
     //              → LEFT_WRIST.x moves right in image  (lWrist.x - lShoulder.x > X_THRESH)
 
-    const BUFFER_SIZE    = 5;   // frames in smoothing window
-    const HOLD_FRAMES    = 30;  // consecutive frames required  (~1 s at 30 fps)
-    const COOLDOWN_FRAMES = 60; // lock-out after trigger        (~2 s at 30 fps)
-    const X_THRESH       = 0.20; // min horizontal offset shoulder→wrist  (20 % of width)
-    const Y_TOL          = 0.18; // max vertical deviation from shoulder   (18 % of height)
-    const MIN_VIS        = 0.60; // minimum landmark visibility score
+    const BUFFER_SIZE     = 5;    // frames in smoothing window
+    const HOLD_FRAMES     = 30;   // consecutive frames required  (~1 s at 30 fps)
+    const COOLDOWN_FRAMES = 60;   // lock-out after trigger        (~2 s at 30 fps)
+    const X_THRESH        = 0.20; // min horizontal offset shoulder→wrist  (20 % of width)
+    const Y_TOL           = 0.18; // max vertical deviation from shoulder   (18 % of height)
+    const MIN_VIS         = 0.60; // minimum landmark visibility score
 
     // ── Smoothing buffers ─────────────────────────────────────────
-    // keyed by MediaPipe landmark index
     const lmBuffers = {};
 
     function getSmoothed(landmarks, idx) {
@@ -310,8 +176,8 @@
         const fwdActive =
           rShoulder.visibility > MIN_VIS &&
           rWrist.visibility    > MIN_VIS &&
-          (rShoulder.x - rWrist.x)         > X_THRESH && // horizontal extension
-          Math.abs(rWrist.y - rShoulder.y)  < Y_TOL;     // roughly horizontal
+          (rShoulder.x - rWrist.x)        > X_THRESH &&
+          Math.abs(rWrist.y - rShoulder.y) < Y_TOL;
 
         fwd.holdCount = fwdActive ? fwd.holdCount + 1 : 0;
 
@@ -330,8 +196,8 @@
         const bwdActive =
           lShoulder.visibility > MIN_VIS &&
           lWrist.visibility    > MIN_VIS &&
-          (lWrist.x - lShoulder.x)         > X_THRESH &&
-          Math.abs(lWrist.y - lShoulder.y)  < Y_TOL;
+          (lWrist.x - lShoulder.x)        > X_THRESH &&
+          Math.abs(lWrist.y - lShoulder.y) < Y_TOL;
 
         bwd.holdCount = bwdActive ? bwd.holdCount + 1 : 0;
 
@@ -352,40 +218,44 @@
         detail: { type, label, timestamp },
       }));
 
-      // Update display
       lastGestureBox.innerHTML = `
-        <div class="gesture-name">${label}</div>
-        <div class="gesture-time">${new Date().toLocaleTimeString('de-DE')}</div>
+        <div class="fs-3 fw-bold text-success gesture-triggered">${label}</div>
+        <div class="text-secondary small">${new Date().toLocaleTimeString('de-DE')}</div>
       `;
     }
 
     // ── Update progress bar UI ────────────────────────────────────
+    // Uses Bootstrap progress-bar color classes: bg-success (active) / bg-warning (cooldown)
     function updateUI() {
       const fwd = state.forward;
       const bwd = state.backward;
 
-      // Forward bar
       if (fwd.cooldown > 0) {
-        // Draining cooldown: bar shows remaining lock-out time
-        barForward.style.width = (100 * fwd.cooldown / COOLDOWN_FRAMES) + '%';
-        barForward.className   = 'progress-fill cooldown';
-        dotForward.className   = 'status-dot cooldown';
+        barForward.style.width    = (100 * fwd.cooldown / COOLDOWN_FRAMES) + '%';
+        barForward.className      = 'progress-bar bg-warning';
+        dotForward.style.background = '#ffc107';
+      } else if (fwd.holdCount > 0) {
+        barForward.style.width    = (100 * fwd.holdCount / HOLD_FRAMES) + '%';
+        barForward.className      = 'progress-bar bg-success';
+        dotForward.style.background = '#198754';
       } else {
-        // Building up: bar shows hold progress toward trigger
-        barForward.style.width = (100 * fwd.holdCount / HOLD_FRAMES) + '%';
-        barForward.className   = 'progress-fill' + (fwd.holdCount > 0 ? ' active' : '');
-        dotForward.className   = 'status-dot'    + (fwd.holdCount > 0 ? ' active' : '');
+        barForward.style.width    = '0%';
+        barForward.className      = 'progress-bar';
+        dotForward.style.background = '#555';
       }
 
-      // Backward bar
       if (bwd.cooldown > 0) {
-        barBackward.style.width = (100 * bwd.cooldown / COOLDOWN_FRAMES) + '%';
-        barBackward.className   = 'progress-fill cooldown';
-        dotBackward.className   = 'status-dot cooldown';
+        barBackward.style.width    = (100 * bwd.cooldown / COOLDOWN_FRAMES) + '%';
+        barBackward.className      = 'progress-bar bg-warning';
+        dotBackward.style.background = '#ffc107';
+      } else if (bwd.holdCount > 0) {
+        barBackward.style.width    = (100 * bwd.holdCount / HOLD_FRAMES) + '%';
+        barBackward.className      = 'progress-bar bg-success';
+        dotBackward.style.background = '#198754';
       } else {
-        barBackward.style.width = (100 * bwd.holdCount / HOLD_FRAMES) + '%';
-        barBackward.className   = 'progress-fill' + (bwd.holdCount > 0 ? ' active' : '');
-        dotBackward.className   = 'status-dot'    + (bwd.holdCount > 0 ? ' active' : '');
+        barBackward.style.width    = '0%';
+        barBackward.className      = 'progress-bar';
+        dotBackward.style.background = '#555';
       }
     }
 
@@ -404,7 +274,6 @@
         detectGestures(results.poseLandmarks);
         updateUI();
 
-        // Raw data display: the four landmarks used for gesture detection
         const lm = results.poseLandmarks;
         rawDataEl.textContent = JSON.stringify({
           RIGHT_SHOULDER: fmt(lm[12]),
@@ -429,11 +298,7 @@
     }
 
     function fmt(lm) {
-      return {
-        x:   lm.x.toFixed(3),
-        y:   lm.y.toFixed(3),
-        vis: lm.visibility.toFixed(2),
-      };
+      return { x: lm.x.toFixed(3), y: lm.y.toFixed(3), vis: lm.visibility.toFixed(2) };
     }
 
     // ── MediaPipe Pose setup ──────────────────────────────────────
@@ -442,7 +307,7 @@
     });
 
     pose.setOptions({
-      modelComplexity:        1,    // 0 = fast, 1 = balanced, 2 = accurate
+      modelComplexity:        1,
       smoothLandmarks:        true,
       minDetectionConfidence: 0.5,
       minTrackingConfidence:  0.5,
@@ -458,7 +323,6 @@
     camera.start();
 
     // ── Demo event listener ───────────────────────────────────────
-    // Shows how an application would consume gesture events
     document.addEventListener('gesture', (e) => {
       console.log('[EVENT] gesture received:', e.detail);
     });
