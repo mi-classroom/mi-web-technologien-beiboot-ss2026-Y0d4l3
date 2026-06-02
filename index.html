@@ -155,57 +155,60 @@
       Object.keys(lmBuffers).forEach(k => { lmBuffers[k] = []; });
     }
 
-    // ── Gesture state machines ────────────────────────────────────
+    // ── Gesture state ─────────────────────────────────────────────
+    // Global cooldown: when any gesture fires, ALL detection pauses.
+    // This prevents a follow-through arm swing from triggering a second gesture.
+    let globalCooldown = 0;
+
     const state = {
-      forward:  { holdCount: 0, cooldown: 0 },
-      backward: { holdCount: 0, cooldown: 0 },
+      forward:  { holdCount: 0 },
+      backward: { holdCount: 0 },
     };
 
     // ── Core detection function ───────────────────────────────────
     function detectGestures(landmarks) {
+      // While cooling down, just decrement and skip all detection
+      if (globalCooldown > 0) {
+        globalCooldown--;
+        return;
+      }
+
       const rShoulder = getSmoothed(landmarks, 12); // RIGHT_SHOULDER
       const rWrist    = getSmoothed(landmarks, 16); // RIGHT_WRIST
       const lShoulder = getSmoothed(landmarks, 11); // LEFT_SHOULDER
       const lWrist    = getSmoothed(landmarks, 15); // LEFT_WRIST
 
       // ── Forward: right arm extended to person's right ──────────
-      const fwd = state.forward;
-      if (fwd.cooldown > 0) {
-        fwd.cooldown--;
-      } else {
-        const fwdActive =
-          rShoulder.visibility > MIN_VIS &&
-          rWrist.visibility    > MIN_VIS &&
-          (rShoulder.x - rWrist.x)        > X_THRESH &&
-          Math.abs(rWrist.y - rShoulder.y) < Y_TOL;
+      const fwdActive =
+        rShoulder.visibility > MIN_VIS &&
+        rWrist.visibility    > MIN_VIS &&
+        (rShoulder.x - rWrist.x)        > X_THRESH &&
+        Math.abs(rWrist.y - rShoulder.y) < Y_TOL;
 
-        fwd.holdCount = fwdActive ? fwd.holdCount + 1 : 0;
+      state.forward.holdCount = fwdActive ? state.forward.holdCount + 1 : 0;
 
-        if (fwd.holdCount >= HOLD_FRAMES) {
-          fwd.holdCount = 0;
-          fwd.cooldown  = COOLDOWN_FRAMES;
-          fireGesture('forward', 'Vorwärts →');
-        }
+      if (state.forward.holdCount >= HOLD_FRAMES) {
+        state.forward.holdCount  = 0;
+        state.backward.holdCount = 0;
+        globalCooldown = COOLDOWN_FRAMES;
+        fireGesture('forward', 'Vorwärts →');
+        return; // skip backward check this frame
       }
 
       // ── Backward: left arm extended to person's left ───────────
-      const bwd = state.backward;
-      if (bwd.cooldown > 0) {
-        bwd.cooldown--;
-      } else {
-        const bwdActive =
-          lShoulder.visibility > MIN_VIS &&
-          lWrist.visibility    > MIN_VIS &&
-          (lWrist.x - lShoulder.x)        > X_THRESH &&
-          Math.abs(lWrist.y - lShoulder.y) < Y_TOL;
+      const bwdActive =
+        lShoulder.visibility > MIN_VIS &&
+        lWrist.visibility    > MIN_VIS &&
+        (lWrist.x - lShoulder.x)        > X_THRESH &&
+        Math.abs(lWrist.y - lShoulder.y) < Y_TOL;
 
-        bwd.holdCount = bwdActive ? bwd.holdCount + 1 : 0;
+      state.backward.holdCount = bwdActive ? state.backward.holdCount + 1 : 0;
 
-        if (bwd.holdCount >= HOLD_FRAMES) {
-          bwd.holdCount = 0;
-          bwd.cooldown  = COOLDOWN_FRAMES;
-          fireGesture('backward', '← Rückwärts');
-        }
+      if (state.backward.holdCount >= HOLD_FRAMES) {
+        state.forward.holdCount  = 0;
+        state.backward.holdCount = 0;
+        globalCooldown = COOLDOWN_FRAMES;
+        fireGesture('backward', '← Rückwärts');
       }
     }
 
@@ -227,15 +230,18 @@
     // ── Update progress bar UI ────────────────────────────────────
     // Uses Bootstrap progress-bar color classes: bg-success (active) / bg-warning (cooldown)
     function updateUI() {
-      const fwd = state.forward;
-      const bwd = state.backward;
+      // During global cooldown both bars drain together
+      if (globalCooldown > 0) {
+        const pct = (100 * globalCooldown / COOLDOWN_FRAMES) + '%';
+        barForward.style.width  = barBackward.style.width  = pct;
+        barForward.className    = barBackward.className    = 'progress-bar bg-warning';
+        dotForward.style.background = dotBackward.style.background = '#ffc107';
+        return;
+      }
 
-      if (fwd.cooldown > 0) {
-        barForward.style.width    = (100 * fwd.cooldown / COOLDOWN_FRAMES) + '%';
-        barForward.className      = 'progress-bar bg-warning';
-        dotForward.style.background = '#ffc107';
-      } else if (fwd.holdCount > 0) {
-        barForward.style.width    = (100 * fwd.holdCount / HOLD_FRAMES) + '%';
+      // Forward bar: shows hold progress
+      if (state.forward.holdCount > 0) {
+        barForward.style.width    = (100 * state.forward.holdCount / HOLD_FRAMES) + '%';
         barForward.className      = 'progress-bar bg-success';
         dotForward.style.background = '#198754';
       } else {
@@ -244,12 +250,9 @@
         dotForward.style.background = '#555';
       }
 
-      if (bwd.cooldown > 0) {
-        barBackward.style.width    = (100 * bwd.cooldown / COOLDOWN_FRAMES) + '%';
-        barBackward.className      = 'progress-bar bg-warning';
-        dotBackward.style.background = '#ffc107';
-      } else if (bwd.holdCount > 0) {
-        barBackward.style.width    = (100 * bwd.holdCount / HOLD_FRAMES) + '%';
+      // Backward bar: shows hold progress
+      if (state.backward.holdCount > 0) {
+        barBackward.style.width    = (100 * state.backward.holdCount / HOLD_FRAMES) + '%';
         barBackward.className      = 'progress-bar bg-success';
         dotBackward.style.background = '#198754';
       } else {
@@ -281,8 +284,9 @@
           LEFT_SHOULDER:  fmt(lm[11]),
           LEFT_WRIST:     fmt(lm[15]),
           gesture: {
-            forward:  { hold: state.forward.holdCount,  cooldown: state.forward.cooldown },
-            backward: { hold: state.backward.holdCount, cooldown: state.backward.cooldown },
+            forward:  { hold: state.forward.holdCount },
+            backward: { hold: state.backward.holdCount },
+            globalCooldown,
           },
         }, null, 2);
 
@@ -291,6 +295,7 @@
         clearBuffers();
         state.forward.holdCount  = 0;
         state.backward.holdCount = 0;
+        globalCooldown = 0;
         updateUI();
       }
 
