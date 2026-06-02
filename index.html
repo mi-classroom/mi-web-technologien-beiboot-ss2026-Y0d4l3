@@ -3,23 +3,45 @@
 
 <head>
   <meta charset="UTF-8">
-  <title>Live Pose Raw Data</title>
+  <title>Gestenerkennung – WebTech SS 2026</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
   <style>
+    * { box-sizing: border-box; }
+
     body {
       display: flex;
+      flex-direction: column;
       font-family: monospace;
       background-color: #1e1e1e;
       color: #d4d4d4;
       margin: 0;
       padding: 20px;
+      gap: 16px;
+    }
+
+    header h1 {
+      margin: 0 0 4px 0;
+      font-size: 18px;
+      color: #9cdcfe;
+    }
+
+    header p {
+      margin: 0;
+      font-size: 12px;
+      color: #888;
+    }
+
+    .main-row {
+      display: flex;
+      gap: 20px;
+      align-items: flex-start;
     }
 
     .video-container {
       position: relative;
-      margin-right: 20px;
+      flex-shrink: 0;
     }
 
     video {
@@ -27,97 +49,420 @@
     }
 
     canvas {
+      display: block;
       border: 2px solid #007acc;
       border-radius: 8px;
       background-color: #000;
+      /* Mirror canvas so display matches natural selfie view.
+         MediaPipe coordinates remain in raw image space – gesture math
+         accounts for this (see docs/gestures.md). */
+      transform: scaleX(-1);
     }
 
-    #rawData {
-      width: 500px;
-      height: 480px;
-      overflow-y: auto;
+    .side-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      min-width: 340px;
+      max-width: 400px;
+    }
+
+    .panel-box {
       background: #2d2d2d;
-      padding: 15px;
+      padding: 14px;
       border-radius: 8px;
-      white-space: pre-wrap;
-      font-size: 12px;
       border: 1px solid #444;
     }
 
-    h2 {
-      margin-top: 0;
+    .panel-box h2 {
+      margin: 0 0 12px 0;
+      font-size: 13px;
       color: #9cdcfe;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* ── Gesture progress bars ── */
+    .gesture-row {
+      margin-bottom: 14px;
+    }
+
+    .gesture-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .gesture-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      margin-bottom: 5px;
+      color: #d4d4d4;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #444;
+      flex-shrink: 0;
+      transition: background 0.1s;
+    }
+    .status-dot.active   { background: #4ec9b0; }
+    .status-dot.cooldown { background: #f59e0b; }
+
+    .progress-track {
+      background: #1a1a1a;
+      border-radius: 4px;
+      height: 10px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      border-radius: 4px;
+      width: 0%;
+      transition: width 0.05s linear, background 0.1s;
+      background: #007acc;
+    }
+    .progress-fill.active   { background: #4ec9b0; }
+    .progress-fill.cooldown { background: #f59e0b; }
+
+    /* ── Last triggered gesture ── */
+    #lastGestureBox {
+      margin-top: 14px;
+      padding: 10px 12px;
+      background: #1a1a1a;
+      border-radius: 6px;
+      border: 1px solid #3a3a3a;
+      min-height: 60px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #lastGestureBox .empty-hint {
+      font-size: 11px;
+      color: #555;
+    }
+
+    .gesture-name {
+      font-size: 28px;
+      font-weight: bold;
+      color: #4ec9b0;
+      animation: pop 0.2s ease-out;
+    }
+
+    .gesture-time {
+      font-size: 11px;
+      color: #666;
+      margin-top: 2px;
+    }
+
+    @keyframes pop {
+      from { transform: scale(0.85); opacity: 0.6; }
+      to   { transform: scale(1);    opacity: 1; }
+    }
+
+    /* ── Raw data box ── */
+    #rawData {
+      font-size: 11px;
+      white-space: pre;
+      overflow-x: auto;
+      color: #b5cea8;
+      line-height: 1.5;
     }
   </style>
 </head>
 
 <body>
 
-  <div class="video-container">
-    <video id="input_video" width="640" height="480" autoplay playsinline></video>
-    <canvas id="output_canvas" width="640" height="480"></canvas>
-  </div>
+  <header>
+    <h1>Gestenerkennung – Prototyp (Issue #2)</h1>
+    <p>
+      Strecke den <strong style="color:#4ec9b0">rechten Arm</strong> seitlich aus und halte 1 s → Vorwärts &nbsp;|&nbsp;
+      <strong style="color:#4ec9b0">Linken Arm</strong> seitlich und halte 1 s → Rückwärts
+    </p>
+  </header>
 
-  <div>
-    <h2>Rohdaten (Landmark 0: Nase)</h2>
-    <div id="rawData">Warte auf Kamera...</div>
+  <div class="main-row">
+    <div class="video-container">
+      <video id="input_video" width="640" height="480" autoplay playsinline></video>
+      <canvas id="output_canvas" width="640" height="480"></canvas>
+    </div>
+
+    <div class="side-panel">
+
+      <!-- Gesture status panel -->
+      <div class="panel-box">
+        <h2>Gestenstatus</h2>
+
+        <div class="gesture-row">
+          <div class="gesture-label">
+            <span class="status-dot" id="dot-forward"></span>
+            Vorwärts → &nbsp;<span style="color:#555">(rechter Arm rechts, ≥1 s)</span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill" id="bar-forward"></div>
+          </div>
+        </div>
+
+        <div class="gesture-row">
+          <div class="gesture-label">
+            <span class="status-dot" id="dot-backward"></span>
+            ← Rückwärts &nbsp;<span style="color:#555">(linker Arm links, ≥1 s)</span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill" id="bar-backward"></div>
+          </div>
+        </div>
+
+        <div id="lastGestureBox">
+          <span class="empty-hint">Noch keine Geste erkannt.</span>
+        </div>
+      </div>
+
+      <!-- Raw data panel -->
+      <div class="panel-box">
+        <h2>Rohdaten (Schlüssel-Landmarks)</h2>
+        <div id="rawData">Warte auf Kamera…</div>
+      </div>
+
+    </div>
   </div>
 
   <script>
-    const videoElement = document.getElementById('input_video');
-    const canvasElement = document.getElementById('output_canvas');
-    const canvasCtx = canvasElement.getContext('2d');
-    const rawDataBox = document.getElementById('rawData');
+    // ── DOM refs ─────────────────────────────────────────────────
+    const videoElement   = document.getElementById('input_video');
+    const canvasElement  = document.getElementById('output_canvas');
+    const canvasCtx      = canvasElement.getContext('2d');
+    const rawDataEl      = document.getElementById('rawData');
+    const barForward     = document.getElementById('bar-forward');
+    const barBackward    = document.getElementById('bar-backward');
+    const dotForward     = document.getElementById('dot-forward');
+    const dotBackward    = document.getElementById('dot-backward');
+    const lastGestureBox = document.getElementById('lastGestureBox');
 
+    // ── Gesture detection parameters ─────────────────────────────
+    //
+    // All thresholds are in MediaPipe's normalised image coordinates (0–1).
+    // Coordinate system note:
+    //   x=0 → left edge of raw image  (= person's RIGHT side)
+    //   x=1 → right edge of raw image (= person's LEFT side)
+    //   y=0 → top,  y=1 → bottom
+    //
+    // "Forward"  = person's RIGHT arm extended to their RIGHT
+    //              → RIGHT_WRIST.x moves left in image  (rShoulder.x - rWrist.x > X_THRESH)
+    // "Backward" = person's LEFT arm extended to their LEFT
+    //              → LEFT_WRIST.x moves right in image  (lWrist.x - lShoulder.x > X_THRESH)
+
+    const BUFFER_SIZE    = 5;   // frames in smoothing window
+    const HOLD_FRAMES    = 30;  // consecutive frames required  (~1 s at 30 fps)
+    const COOLDOWN_FRAMES = 60; // lock-out after trigger        (~2 s at 30 fps)
+    const X_THRESH       = 0.20; // min horizontal offset shoulder→wrist  (20 % of width)
+    const Y_TOL          = 0.18; // max vertical deviation from shoulder   (18 % of height)
+    const MIN_VIS        = 0.60; // minimum landmark visibility score
+
+    // ── Smoothing buffers ─────────────────────────────────────────
+    // keyed by MediaPipe landmark index
+    const lmBuffers = {};
+
+    function getSmoothed(landmarks, idx) {
+      if (!lmBuffers[idx]) lmBuffers[idx] = [];
+      const buf = lmBuffers[idx];
+      buf.push({
+        x: landmarks[idx].x,
+        y: landmarks[idx].y,
+        visibility: landmarks[idx].visibility,
+      });
+      if (buf.length > BUFFER_SIZE) buf.shift();
+      const n = buf.length;
+      return {
+        x:          buf.reduce((s, p) => s + p.x,          0) / n,
+        y:          buf.reduce((s, p) => s + p.y,          0) / n,
+        visibility: buf.reduce((s, p) => s + p.visibility, 0) / n,
+      };
+    }
+
+    function clearBuffers() {
+      Object.keys(lmBuffers).forEach(k => { lmBuffers[k] = []; });
+    }
+
+    // ── Gesture state machines ────────────────────────────────────
+    const state = {
+      forward:  { holdCount: 0, cooldown: 0 },
+      backward: { holdCount: 0, cooldown: 0 },
+    };
+
+    // ── Core detection function ───────────────────────────────────
+    function detectGestures(landmarks) {
+      const rShoulder = getSmoothed(landmarks, 12); // RIGHT_SHOULDER
+      const rWrist    = getSmoothed(landmarks, 16); // RIGHT_WRIST
+      const lShoulder = getSmoothed(landmarks, 11); // LEFT_SHOULDER
+      const lWrist    = getSmoothed(landmarks, 15); // LEFT_WRIST
+
+      // ── Forward: right arm extended to person's right ──────────
+      const fwd = state.forward;
+      if (fwd.cooldown > 0) {
+        fwd.cooldown--;
+      } else {
+        const fwdActive =
+          rShoulder.visibility > MIN_VIS &&
+          rWrist.visibility    > MIN_VIS &&
+          (rShoulder.x - rWrist.x)         > X_THRESH && // horizontal extension
+          Math.abs(rWrist.y - rShoulder.y)  < Y_TOL;     // roughly horizontal
+
+        fwd.holdCount = fwdActive ? fwd.holdCount + 1 : 0;
+
+        if (fwd.holdCount >= HOLD_FRAMES) {
+          fwd.holdCount = 0;
+          fwd.cooldown  = COOLDOWN_FRAMES;
+          fireGesture('forward', 'Vorwärts →');
+        }
+      }
+
+      // ── Backward: left arm extended to person's left ───────────
+      const bwd = state.backward;
+      if (bwd.cooldown > 0) {
+        bwd.cooldown--;
+      } else {
+        const bwdActive =
+          lShoulder.visibility > MIN_VIS &&
+          lWrist.visibility    > MIN_VIS &&
+          (lWrist.x - lShoulder.x)         > X_THRESH &&
+          Math.abs(lWrist.y - lShoulder.y)  < Y_TOL;
+
+        bwd.holdCount = bwdActive ? bwd.holdCount + 1 : 0;
+
+        if (bwd.holdCount >= HOLD_FRAMES) {
+          bwd.holdCount = 0;
+          bwd.cooldown  = COOLDOWN_FRAMES;
+          fireGesture('backward', '← Rückwärts');
+        }
+      }
+    }
+
+    // ── Fire gesture event ────────────────────────────────────────
+    function fireGesture(type, label) {
+      const timestamp = new Date().toISOString();
+      console.log(`[GESTURE] ${label}`, timestamp);
+
+      document.dispatchEvent(new CustomEvent('gesture', {
+        detail: { type, label, timestamp },
+      }));
+
+      // Update display
+      lastGestureBox.innerHTML = `
+        <div class="gesture-name">${label}</div>
+        <div class="gesture-time">${new Date().toLocaleTimeString('de-DE')}</div>
+      `;
+    }
+
+    // ── Update progress bar UI ────────────────────────────────────
+    function updateUI() {
+      const fwd = state.forward;
+      const bwd = state.backward;
+
+      // Forward bar
+      if (fwd.cooldown > 0) {
+        // Draining cooldown: bar shows remaining lock-out time
+        barForward.style.width = (100 * fwd.cooldown / COOLDOWN_FRAMES) + '%';
+        barForward.className   = 'progress-fill cooldown';
+        dotForward.className   = 'status-dot cooldown';
+      } else {
+        // Building up: bar shows hold progress toward trigger
+        barForward.style.width = (100 * fwd.holdCount / HOLD_FRAMES) + '%';
+        barForward.className   = 'progress-fill' + (fwd.holdCount > 0 ? ' active' : '');
+        dotForward.className   = 'status-dot'    + (fwd.holdCount > 0 ? ' active' : '');
+      }
+
+      // Backward bar
+      if (bwd.cooldown > 0) {
+        barBackward.style.width = (100 * bwd.cooldown / COOLDOWN_FRAMES) + '%';
+        barBackward.className   = 'progress-fill cooldown';
+        dotBackward.className   = 'status-dot cooldown';
+      } else {
+        barBackward.style.width = (100 * bwd.holdCount / HOLD_FRAMES) + '%';
+        barBackward.className   = 'progress-fill' + (bwd.holdCount > 0 ? ' active' : '');
+        dotBackward.className   = 'status-dot'    + (bwd.holdCount > 0 ? ' active' : '');
+      }
+    }
+
+    // ── MediaPipe results callback ────────────────────────────────
     function onResults(results) {
       canvasCtx.save();
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
       canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
       if (results.poseLandmarks) {
-        drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, {color: '#00FF00', lineWidth: 2});
-        drawLandmarks(canvasCtx, results.poseLandmarks, {color: '#FF0000', lineWidth: 1, radius: 3});
+        drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS,
+          { color: '#00FF00', lineWidth: 2 });
+        drawLandmarks(canvasCtx, results.poseLandmarks,
+          { color: '#FF0000', lineWidth: 1, radius: 3 });
 
-        const nose = results.poseLandmarks[0];
-        const rawDataString = JSON.stringify({
-          timestamp: new Date().toISOString(),
-          landmark: "Nase",
-          data: {
-            x: nose.x.toFixed(4),
-            y: nose.y.toFixed(4),
-            z: nose.z.toFixed(4),
-            visibility: nose.visibility.toFixed(4)
-          }
+        detectGestures(results.poseLandmarks);
+        updateUI();
+
+        // Raw data display: the four landmarks used for gesture detection
+        const lm = results.poseLandmarks;
+        rawDataEl.textContent = JSON.stringify({
+          RIGHT_SHOULDER: fmt(lm[12]),
+          RIGHT_WRIST:    fmt(lm[16]),
+          LEFT_SHOULDER:  fmt(lm[11]),
+          LEFT_WRIST:     fmt(lm[15]),
+          gesture: {
+            forward:  { hold: state.forward.holdCount,  cooldown: state.forward.cooldown },
+            backward: { hold: state.backward.holdCount, cooldown: state.backward.cooldown },
+          },
         }, null, 2);
 
-        rawDataBox.textContent = rawDataString + "\n\n(Es kommen 33 solcher Landmarks pro Frame rein!)";
       } else {
-        rawDataBox.textContent = "Keine Person erkannt.";
+        rawDataEl.textContent = 'Keine Person erkannt.';
+        clearBuffers();
+        state.forward.holdCount  = 0;
+        state.backward.holdCount = 0;
+        updateUI();
       }
+
       canvasCtx.restore();
     }
 
+    function fmt(lm) {
+      return {
+        x:   lm.x.toFixed(3),
+        y:   lm.y.toFixed(3),
+        vis: lm.visibility.toFixed(2),
+      };
+    }
+
+    // ── MediaPipe Pose setup ──────────────────────────────────────
     const pose = new Pose({
-      locateFile: (file) => {
-        return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
-      }
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
     });
 
     pose.setOptions({
-      modelComplexity: 1, // 0=schnell, 1=ausgewogen, 2=genau
-      smoothLandmarks: true,
+      modelComplexity:        1,    // 0 = fast, 1 = balanced, 2 = accurate
+      smoothLandmarks:        true,
       minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5
+      minTrackingConfidence:  0.5,
     });
+
     pose.onResults(onResults);
 
     const camera = new Camera(videoElement, {
-      onFrame: async () => {await pose.send({image: videoElement});},
+      onFrame: async () => { await pose.send({ image: videoElement }); },
       width: 640,
-      height: 480
+      height: 480,
     });
     camera.start();
-  </script>
-</body>
 
+    // ── Demo event listener ───────────────────────────────────────
+    // Shows how an application would consume gesture events
+    document.addEventListener('gesture', (e) => {
+      console.log('[EVENT] gesture received:', e.detail);
+    });
+  </script>
+
+</body>
 </html>
