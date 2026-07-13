@@ -58,11 +58,12 @@
       this.minVisibility  = minVisibility;
       this.historySize    = historySize;
 
-      this._gestures     = [];   // ordered list of gesture definitions
-      this._smoothBuf    = [];   // raw landmark frames, up to bufferSize
-      this._historyBuf   = [];   // smoothed landmark frames, up to historySize
-      this._holdCounters = {};   // name → consecutive-frame count
+      this._gestures     = [];        // ordered list of gesture definitions
+      this._smoothBuf    = [];        // raw landmark frames, up to bufferSize
+      this._historyBuf   = [];        // smoothed landmark frames, up to historySize
+      this._holdCounters = {};        // name → consecutive-frame count
       this._cooldown     = 0;
+      this._disabled     = new Set(); // names of currently-disabled gestures
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -140,8 +141,10 @@
       // 5. Evaluate hold gestures in registration order.
       //    A gesture whose `conflicts` list contains the name of any currently
       //    accumulating gesture has its own counter reset for this frame.
+      //    Disabled gestures are skipped entirely (counter stays at 0).
       for (const g of this._gestures) {
         if (g.type !== 'hold') continue;
+        if (this._disabled.has(g.name)) continue;
 
         const blocked = g.conflicts.some(n => (this._holdCounters[n] || 0) > 0);
         if (blocked) {
@@ -161,8 +164,10 @@
       }
 
       // 6. Evaluate velocity gestures in registration order.
+      //    Disabled gestures are skipped.
       for (const g of this._gestures) {
         if (g.type !== 'velocity') continue;
+        if (this._disabled.has(g.name)) continue;
         if (g.check(smoothed, this._historyBuf)) {
           this._trigger(g);
           return;
@@ -189,10 +194,12 @@
      * @returns {Array<{ name, type, label, holdFrames? }>}
      */
     getGestures() {
-      return this._gestures.map(({ name, type, label, holdFrames }) =>
-        holdFrames !== undefined ? { name, type, label, holdFrames }
-                                 : { name, type, label }
-      );
+      return this._gestures.map(({ name, type, label, holdFrames }) => {
+        const disabled = this._disabled.has(name);
+        return holdFrames !== undefined
+          ? { name, type, label, holdFrames, disabled }
+          : { name, type, label, disabled };
+      });
     }
 
     /** @returns {boolean} True while the post-gesture lockout is active. */
@@ -206,6 +213,62 @@
      */
     reset() {
       this._resetState();
+    }
+
+    /**
+     * Disable a registered gesture so it is skipped during detection.
+     * Its hold counter is reset immediately; it can be re-enabled with enable().
+     * Disabled gestures still appear in getGestures() (with disabled: true)
+     * and in getProgress(), but they never fire events.
+     *
+     * Returns `this` for chaining.
+     *
+     * @param {string} name  Gesture name to disable.
+     * @returns {GestureLibrary}
+     */
+    disable(name) {
+      if (!this._gestures.some(g => g.name === name)) {
+        throw new Error(`GestureLibrary.disable(): gesture "${name}" is not registered.`);
+      }
+      this._disabled.add(name);
+      if (name in this._holdCounters) this._holdCounters[name] = 0;
+      return this;
+    }
+
+    /**
+     * Re-enable a previously disabled gesture.
+     * Has no effect if the gesture is not currently disabled.
+     *
+     * Returns `this` for chaining.
+     *
+     * @param {string} name  Gesture name to enable.
+     * @returns {GestureLibrary}
+     */
+    enable(name) {
+      this._disabled.delete(name);
+      return this;
+    }
+
+    /**
+     * Returns the hold-progress for every registered hold gesture as a
+     * convenient map, avoiding the need to manually combine getState() and
+     * getGestures() to compute percentages.
+     *
+     * @returns {Object.<string, { count: number, holdFrames: number, progress: number }>}
+     *   Keys are gesture names.  `progress` is a value in [0, 1].
+     */
+    getProgress() {
+      const out = {};
+      for (const g of this._gestures) {
+        if (g.type !== 'hold') continue;
+        const count = this._holdCounters[g.name] || 0;
+        out[g.name] = {
+          count,
+          holdFrames: g.holdFrames,
+          progress:   g.holdFrames > 0 ? Math.min(count / g.holdFrames, 1) : 0,
+        };
+      }
+      return out;
     }
 
     /**
