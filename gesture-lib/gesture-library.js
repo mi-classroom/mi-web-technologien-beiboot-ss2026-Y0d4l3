@@ -35,28 +35,57 @@
   class GestureLibrary extends EventTarget {
     /**
      * @param {object} [options]
-     * @param {number} [options.bufferSize=5]       Smoothing window (frames).
-     * @param {number} [options.cooldownFrames=60]  Lockout after each gesture.
-     * @param {number} [options.minVisibility=0.60] Min landmark visibility score.
-     * @param {number} [options.historySize=30]     Max frames kept for velocity checks.
+     * @param {number} [options.bufferSize=5]        Smoothing window (frames).
+     * @param {number} [options.minVisibility=0.60]  Min landmark visibility score.
+     * @param {number} [options.historySize=30]      Max frames kept for velocity checks.
+     * @param {number} [options.nominalFps=30]       Frame rate assumed when update() is
+     *                                               called without a timestamp, and the
+     *                                               basis for the frames↔ms conversion.
+     * @param {number} [options.cooldownMs]          Lockout after each gesture, in ms.
+     * @param {number} [options.cooldownFrames]      Legacy: lockout in frames. Converted
+     *                                               to ms via nominalFps. Ignored if
+     *                                               cooldownMs is given. Defaults to ~2 s.
+     * @param {number} [options.maxFrameGapMs=250]   Upper bound applied to the measured
+     *                                               inter-frame delta, so a stalled feed
+     *                                               (e.g. a backgrounded tab) cannot make
+     *                                               a hold complete or a cooldown expire
+     *                                               in a single jump.
      */
     constructor({
       bufferSize = 5,
-      cooldownFrames = 60,
       minVisibility = 0.6,
       historySize = 30,
+      nominalFps = 30,
+      cooldownMs,
+      cooldownFrames,
+      maxFrameGapMs = 250,
     } = {}) {
       super();
       this.bufferSize = bufferSize;
-      this.cooldownFrames = cooldownFrames;
       this.minVisibility = minVisibility;
       this.historySize = historySize;
+      this.nominalFps = nominalFps;
+      this.maxFrameGapMs = maxFrameGapMs;
+      this._nominalDt = 1000 / nominalFps; // ms per frame at the nominal rate
+
+      // Cooldown is stored in ms. Prefer an explicit cooldownMs; otherwise accept the
+      // legacy cooldownFrames (converted); otherwise default to ~2 s.
+      this.cooldownMs =
+        cooldownMs != null
+          ? cooldownMs
+          : cooldownFrames != null
+            ? cooldownFrames * this._nominalDt
+            : 2000;
+      // Derived frame-equivalent, kept for UIs that still read it (e.g. progress bars).
+      this.cooldownFrames = Math.round(this.cooldownMs / this._nominalDt);
 
       this._gestures = []; // ordered list of gesture definitions
       this._smoothBuf = []; // raw landmark frames, up to bufferSize
       this._historyBuf = []; // smoothed landmark frames, up to historySize
-      this._holdCounters = {}; // name → consecutive-frame count
-      this._cooldown = 0;
+      this._historyTimes = []; // timestamps parallel to _historyBuf (ms)
+      this._holdElapsed = {}; // name → ms the current hold streak has lasted
+      this._cooldownRemaining = 0; // ms left in the post-gesture lockout
+      this._lastTs = null; // timestamp of the previous update() (ms)
       this._disabled = new Set(); // names of currently-disabled gestures
     }
 
@@ -69,7 +98,10 @@
      *   name       {string}    Unique identifier used in events and state.
      *   type       {string}    'hold' or 'velocity'.
      *   label      {string}    Human-readable name shown in UI / events.
-     *   holdFrames {number}    (hold only) Consecutive frames required to fire.
+     *   holdMs     {number}    (hold only) Duration the condition must hold to fire, in
+     *                          milliseconds. Preferred over holdFrames.
+     *   holdFrames {number}    (hold only) Legacy alternative to holdMs: a frame count,
+     *                          interpreted as holdFrames/nominalFps seconds.
      *   conflicts  {string[]}  (hold only) Names of gestures whose accumulation
      *                          blocks this one from accumulating.  Gestures are
      *                          evaluated in registration order, so a higher-
@@ -94,9 +126,17 @@
       if (this._gestures.some(g => g.name === def.name)) {
         throw new Error(`GestureLibrary.register(): gesture "${def.name}" already registered.`);
       }
-      this._gestures.push({ conflicts: [], ...def });
+      // Resolve the hold duration to ms once, at registration time.
+      const holdMs =
+        def.holdMs != null
+          ? def.holdMs
+          : def.holdFrames != null
+            ? def.holdFrames * this._nominalDt
+            : undefined;
+
+      this._gestures.push({ conflicts: [], ...def, holdMs });
       if (def.type === 'hold') {
-        this._holdCounters[def.name] = 0;
+        this._holdElapsed[def.name] = 0;
       }
       return this;
     }
@@ -107,53 +147,65 @@
      * Pass null (or call with no argument) when no pose is detected.
      *
      * @param {Array|null} landmarks  MediaPipe poseLandmarks array.
+     * @param {number} [timestamp]    Frame time in ms (e.g. performance.now()). When
+     *                                omitted, a nominal-fps clock is used, so existing
+     *                                callers keep working; pass real timestamps to make
+     *                                hold and cooldown timing independent of frame rate.
      */
-    update(landmarks) {
+    update(landmarks, timestamp) {
       if (!landmarks || landmarks.length === 0) {
         this._resetState();
         return;
       }
 
-      // 1. Advance the smoothing window.
+      // 1. Determine the elapsed time since the previous frame.
+      const dt = this._advanceClock(timestamp);
+
+      // 2. Advance the smoothing window.
       this._smoothBuf.push(landmarks);
       if (this._smoothBuf.length > this.bufferSize) this._smoothBuf.shift();
 
-      // 2. Compute per-landmark running average.
+      // 3. Compute per-landmark running average.
       const smoothed = this._computeSmoothed();
 
-      // 3. Advance the history window (updated every frame, even during cooldown,
+      // 4. Advance the history window (updated every frame, even during cooldown,
       //    so velocity windows do not have gaps after the lockout ends).
       this._historyBuf.push(smoothed);
-      if (this._historyBuf.length > this.historySize) this._historyBuf.shift();
+      this._historyTimes.push(this._lastTs);
+      if (this._historyBuf.length > this.historySize) {
+        this._historyBuf.shift();
+        this._historyTimes.shift();
+      }
 
-      // 4. Tick the cooldown counter and skip detection while active.
-      if (this._cooldown > 0) {
-        this._cooldown--;
+      // 5. Draw down the cooldown and skip detection while it is active.
+      if (this._cooldownRemaining > 0) {
+        this._cooldownRemaining = Math.max(0, this._cooldownRemaining - dt);
         return;
       }
 
-      // 5. Evaluate hold gestures in registration order.
+      // 6. Evaluate hold gestures in registration order.
       //    A gesture whose `conflicts` list contains the name of any currently
-      //    accumulating gesture has its own counter reset for this frame.
-      //    Disabled gestures are skipped entirely (counter stays at 0).
+      //    accumulating gesture has its own timer reset for this frame.
+      //    Disabled gestures are skipped entirely (timer stays at 0).
       for (const g of this._gestures) {
         if (g.type !== 'hold') continue;
         if (this._disabled.has(g.name)) continue;
 
-        const blocked = g.conflicts.some(n => (this._holdCounters[n] || 0) > 0);
+        const blocked = g.conflicts.some(n => (this._holdElapsed[n] || 0) > 0);
         if (blocked) {
-          this._holdCounters[g.name] = 0;
+          this._holdElapsed[g.name] = 0;
           continue;
         }
 
         if (g.check(smoothed, this._historyBuf)) {
-          this._holdCounters[g.name]++;
-          if (this._holdCounters[g.name] >= g.holdFrames) {
+          this._holdElapsed[g.name] += dt;
+          // Small epsilon so floating-point rounding never delays a hold by one frame.
+          if (this._holdElapsed[g.name] >= g.holdMs - 1e-9) {
             this._trigger(g);
             return;
           }
         } else {
-          this._holdCounters[g.name] = 0;
+          this._holdElapsed[g.name] = 0;
         }
       }
 
@@ -171,34 +223,48 @@
 
     /**
      * Returns a read-only snapshot of the current library state.
+     * `cooldown` and `holdCounters` are expressed in nominal frames (derived from the
+     * internal ms timers) for backward compatibility; `cooldownMs` gives the raw value.
      *
-     * @returns {{ cooldown: number, holdCounters: object }}
+     * @returns {{ cooldown: number, cooldownMs: number, holdCounters: object }}
      */
     getState() {
+      const holdCounters = {};
+      for (const name in this._holdElapsed) {
+        holdCounters[name] = Math.round(this._holdElapsed[name] / this._nominalDt);
+      }
       return {
-        cooldown: this._cooldown,
-        holdCounters: { ...this._holdCounters },
+        cooldown: Math.round(this._cooldownRemaining / this._nominalDt),
+        cooldownMs: this._cooldownRemaining,
+        holdCounters,
       };
     }
 
     /**
      * Returns a summary of every registered gesture (safe copy, no check functions).
      * Useful for dynamically building a UI without hardcoding gesture names.
+     * For hold gestures, both the ms duration and a nominal-frame equivalent are given.
      *
-     * @returns {Array<{ name, type, label, holdFrames? }>}
+     * @returns {Array<{ name, type, label, holdMs?, holdFrames?, disabled }>}
      */
     getGestures() {
-      return this._gestures.map(({ name, type, label, holdFrames }) => {
+      return this._gestures.map(({ name, type, label, holdMs }) => {
         const disabled = this._disabled.has(name);
-        return holdFrames !== undefined
-          ? { name, type, label, holdFrames, disabled }
-          : { name, type, label, disabled };
+        if (holdMs === undefined) return { name, type, label, disabled };
+        return {
+          name,
+          type,
+          label,
+          holdMs,
+          holdFrames: Math.round(holdMs / this._nominalDt),
+          disabled,
+        };
       });
     }
 
     /** @returns {boolean} True while the post-gesture lockout is active. */
     isOnCooldown() {
-      return this._cooldown > 0;
+      return this._cooldownRemaining > 0;
     }
 
     /**
@@ -225,7 +291,7 @@
         throw new Error(`GestureLibrary.disable(): gesture "${name}" is not registered.`);
       }
       this._disabled.add(name);
-      if (name in this._holdCounters) this._holdCounters[name] = 0;
+      if (name in this._holdElapsed) this._holdElapsed[name] = 0;
       return this;
     }
 
@@ -249,17 +315,18 @@
      * getGestures() to compute percentages.
      *
      * @returns {Object.<string, { count: number, holdFrames: number, progress: number }>}
-     *   Keys are gesture names.  `progress` is a value in [0, 1].
+     *   Keys are gesture names.  `count`/`holdFrames` are nominal-frame equivalents of
+     *   the internal ms timers.  `progress` is a value in [0, 1].
      */
     getProgress() {
       const out = {};
       for (const g of this._gestures) {
         if (g.type !== 'hold') continue;
-        const count = this._holdCounters[g.name] || 0;
+        const elapsed = this._holdElapsed[g.name] || 0;
         out[g.name] = {
-          count,
-          holdFrames: g.holdFrames,
-          progress: g.holdFrames > 0 ? Math.min(count / g.holdFrames, 1) : 0,
+          count: Math.round(elapsed / this._nominalDt),
+          holdFrames: Math.round(g.holdMs / this._nominalDt),
+          progress: g.holdMs > 0 ? Math.min(elapsed / g.holdMs, 1) : 0,
         };
       }
       return out;
@@ -318,11 +385,12 @@
 
     /** Fire a gesture: reset accumulators, start cooldown, dispatch events. */
     _trigger(gesture) {
-      // Reset all hold counters and clear the velocity history so a fresh
+      // Reset all hold timers and clear the velocity history so a fresh
       // window is required before the next velocity gesture can fire.
-      for (const name in this._holdCounters) this._holdCounters[name] = 0;
+      for (const name in this._holdElapsed) this._holdElapsed[name] = 0;
       this._historyBuf = [];
-      this._cooldown = this.cooldownFrames;
+      this._historyTimes = [];
+      this._cooldownRemaining = this.cooldownMs;
 
       const detail = {
         name: gesture.name,
@@ -344,8 +412,33 @@
     _resetState() {
       this._smoothBuf = [];
       this._historyBuf = [];
-      this._cooldown = 0;
-      for (const name in this._holdCounters) this._holdCounters[name] = 0;
+      this._historyTimes = [];
+      this._cooldownRemaining = 0;
+      this._lastTs = null;
+      for (const name in this._holdElapsed) this._holdElapsed[name] = 0;
+    }
+
+    /**
+     * Update the internal clock and return the sanitized elapsed time (ms) since the
+     * previous frame.
+     *
+     * With an explicit timestamp, dt is the real gap between samples (0 on the first
+     * frame, then clamped to [0, maxFrameGapMs]). Without one, a fixed nominal-fps step
+     * is assumed so timestamp-free callers behave exactly as the frame-based version did.
+     *
+     * @param {number} [ts]  Frame timestamp in ms.
+     * @returns {number}     Elapsed time since the previous frame, in ms.
+     */
+    _advanceClock(ts) {
+      if (typeof ts === 'number' && Number.isFinite(ts)) {
+        const dt = this._lastTs == null ? 0 : ts - this._lastTs;
+        this._lastTs = ts;
+        if (!(dt > 0)) return 0; // first frame or non-monotonic timestamp
+        return dt > this.maxFrameGapMs ? this.maxFrameGapMs : dt;
+      }
+      // No timestamp supplied: assume the nominal frame rate.
+      this._lastTs = this._lastTs == null ? 0 : this._lastTs + this._nominalDt;
+      return this._nominalDt;
     }
   }
 
