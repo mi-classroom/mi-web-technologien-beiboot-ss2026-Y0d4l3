@@ -1,0 +1,21 @@
+{
+  "name": "gesture-library",
+  "version": "0.9.0",
+  "description": "Framework-free JavaScript library that turns MediaPipe Pose landmarks into custom browser gesture events.",
+  "license": "MIT",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "test": "node --test",
+    "test:coverage": "node --test --experimental-test-coverage"
+  },
+  "keywords": [
+    "gesture",
+    "mediapipe",
+    "pose",
+    "custom-events",
+    "webcam"
+  ]
+}
