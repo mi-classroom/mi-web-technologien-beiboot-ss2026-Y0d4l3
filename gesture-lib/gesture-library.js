@@ -21,11 +21,6 @@
 
   // ── Module-private helpers ──────────────────────────────────────────────────
 
-  /** True when all listed landmark indices exceed the visibility threshold. */
-  function _vis(lm, minVis, ...indices) {
-    return indices.every(i => lm[i] && lm[i].visibility > minVis);
-  }
-
   /** Arithmetic mean of a numeric array. */
   function _avg(arr) {
     return arr.reduce((s, v) => s + v, 0) / arr.length;
@@ -38,7 +33,6 @@
    * addEventListener / removeEventListener / dispatchEvent API.
    */
   class GestureLibrary extends EventTarget {
-
     /**
      * @param {object} [options]
      * @param {number} [options.bufferSize=5]       Smoothing window (frames).
@@ -47,23 +41,23 @@
      * @param {number} [options.historySize=30]     Max frames kept for velocity checks.
      */
     constructor({
-      bufferSize     = 5,
+      bufferSize = 5,
       cooldownFrames = 60,
-      minVisibility  = 0.60,
-      historySize    = 30,
+      minVisibility = 0.6,
+      historySize = 30,
     } = {}) {
       super();
-      this.bufferSize     = bufferSize;
+      this.bufferSize = bufferSize;
       this.cooldownFrames = cooldownFrames;
-      this.minVisibility  = minVisibility;
-      this.historySize    = historySize;
+      this.minVisibility = minVisibility;
+      this.historySize = historySize;
 
-      this._gestures     = [];        // ordered list of gesture definitions
-      this._smoothBuf    = [];        // raw landmark frames, up to bufferSize
-      this._historyBuf   = [];        // smoothed landmark frames, up to historySize
-      this._holdCounters = {};        // name → consecutive-frame count
-      this._cooldown     = 0;
-      this._disabled     = new Set(); // names of currently-disabled gestures
+      this._gestures = []; // ordered list of gesture definitions
+      this._smoothBuf = []; // raw landmark frames, up to bufferSize
+      this._historyBuf = []; // smoothed landmark frames, up to historySize
+      this._holdCounters = {}; // name → consecutive-frame count
+      this._cooldown = 0;
+      this._disabled = new Set(); // names of currently-disabled gestures
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -182,7 +176,7 @@
      */
     getState() {
       return {
-        cooldown:     this._cooldown,
+        cooldown: this._cooldown,
         holdCounters: { ...this._holdCounters },
       };
     }
@@ -265,7 +259,7 @@
         out[g.name] = {
           count,
           holdFrames: g.holdFrames,
-          progress:   g.holdFrames > 0 ? Math.min(count / g.holdFrames, 1) : 0,
+          progress: g.holdFrames > 0 ? Math.min(count / g.holdFrames, 1) : 0,
         };
       }
       return out;
@@ -280,10 +274,18 @@
      */
     useDefaults() {
       const order = [
-        'stop', 'armsCrossed',
-        'confirm', 'volUp', 'volDown',
-        'forward', 'backward', 'pause',
-        'scrollUp', 'scrollDown', 'zoomIn', 'zoomOut',
+        'stop',
+        'armsCrossed',
+        'confirm',
+        'volUp',
+        'volDown',
+        'forward',
+        'backward',
+        'pause',
+        'scrollUp',
+        'scrollDown',
+        'zoomIn',
+        'zoomOut',
         'swipeRight',
       ];
       for (const name of order) {
@@ -296,15 +298,18 @@
 
     /** Compute per-landmark mean over the current smoothing window. */
     _computeSmoothed() {
-      const n  = this._smoothBuf.length;
+      const n = this._smoothBuf.length;
       const lc = this._smoothBuf[0].length;
       return Array.from({ length: lc }, (_, i) => {
-        let x = 0, y = 0, z = 0, vis = 0;
+        let x = 0,
+          y = 0,
+          z = 0,
+          vis = 0;
         for (const frame of this._smoothBuf) {
           const lm = frame[i] || {};
-          x   += lm.x          ?? 0;
-          y   += lm.y          ?? 0;
-          z   += lm.z          ?? 0;
+          x += lm.x ?? 0;
+          y += lm.y ?? 0;
+          z += lm.z ?? 0;
           vis += lm.visibility ?? 0;
         }
         return { x: x / n, y: y / n, z: z / n, visibility: vis / n };
@@ -317,11 +322,11 @@
       // window is required before the next velocity gesture can fire.
       for (const name in this._holdCounters) this._holdCounters[name] = 0;
       this._historyBuf = [];
-      this._cooldown   = this.cooldownFrames;
+      this._cooldown = this.cooldownFrames;
 
       const detail = {
-        name:      gesture.name,
-        label:     gesture.label,
+        name: gesture.name,
+        label: gesture.label,
         timestamp: Date.now(),
       };
 
@@ -337,9 +342,9 @@
 
     /** Hard reset – called when no pose is detected or reset() is invoked. */
     _resetState() {
-      this._smoothBuf  = [];
+      this._smoothBuf = [];
       this._historyBuf = [];
-      this._cooldown   = 0;
+      this._cooldown = 0;
       for (const name in this._holdCounters) this._holdCounters[name] = 0;
     }
   }
@@ -358,15 +363,16 @@
   // The demo canvas is CSS-mirrored (scaleX(-1)) for natural selfie display;
   // the coordinate values themselves are never modified.
 
-  const _XV = 0.20;  // minimum horizontal extension to count as "arm extended"
-  const _YT = 0.18;  // maximum vertical deviation from shoulder height
-  const _MV = 0.60;  // minimum visibility score
+  const _XV = 0.2; // minimum horizontal extension to count as "arm extended"
+  const _YT = 0.18; // maximum vertical deviation from shoulder height
+  const _MV = 0.6; // minimum visibility score
 
   /** Checks visibility of the given landmark indices against _MV. */
-  function _v(lm, ...idx) { return idx.every(i => lm[i] && lm[i].visibility > _MV); }
+  function _v(lm, ...idx) {
+    return idx.every(i => lm[i] && lm[i].visibility > _MV);
+  }
 
   GestureLibrary.BUILTINS = {
-
     // ── Hold gestures ───────────────────────────────────────────────────────
 
     /**
@@ -375,11 +381,18 @@
      * simultaneously (T-pose satisfies both arm-extended conditions).
      */
     stop: {
-      name: 'stop', type: 'hold', label: 'Stop (T-Pose)', holdFrames: 30,
+      name: 'stop',
+      type: 'hold',
+      label: 'Stop (T-Pose)',
+      holdFrames: 30,
       check(lm) {
         if (!_v(lm, 11, 12, 15, 16)) return false;
-        return (lm[12].x - lm[16].x) > _XV && Math.abs(lm[16].y - lm[12].y) < _YT &&
-               (lm[15].x - lm[11].x) > _XV && Math.abs(lm[15].y - lm[11].y) < _YT;
+        return (
+          lm[12].x - lm[16].x > _XV &&
+          Math.abs(lm[16].y - lm[12].y) < _YT &&
+          lm[15].x - lm[11].x > _XV &&
+          Math.abs(lm[15].y - lm[11].y) < _YT
+        );
       },
     },
 
@@ -389,16 +402,19 @@
      * original mapping table (#4), where arms cross in front of the torso.
      */
     armsCrossed: {
-      name: 'armsCrossed', type: 'hold', label: 'Abbrechen (Arme gekreuzt)', holdFrames: 30,
+      name: 'armsCrossed',
+      type: 'hold',
+      label: 'Abbrechen (Arme gekreuzt)',
+      holdFrames: 30,
       check(lm) {
         if (!_v(lm, 11, 12, 15, 16, 24)) return false;
-        const rW = lm[16], lW = lm[15];
+        const rW = lm[16],
+          lW = lm[15];
         // In MediaPipe space: right wrist normally has lower x than left wrist.
         // When crossed, right wrist x exceeds left wrist x.
-        const crossed   = rW.x > lW.x;
+        const crossed = rW.x > lW.x;
         // Both wrists should be in the torso zone (below shoulders, above hips).
-        const atTorso   = rW.y > lm[12].y && rW.y < lm[24].y &&
-                          lW.y > lm[11].y && lW.y < lm[24].y;
+        const atTorso = rW.y > lm[12].y && rW.y < lm[24].y && lW.y > lm[11].y && lW.y < lm[24].y;
         return crossed && atTorso;
       },
     },
@@ -409,7 +425,10 @@
      * accumulate the vol-up counter.
      */
     confirm: {
-      name: 'confirm', type: 'hold', label: 'Bestätigen', holdFrames: 30,
+      name: 'confirm',
+      type: 'hold',
+      label: 'Bestätigen',
+      holdFrames: 30,
       check(lm) {
         if (!_v(lm, 11, 12, 15, 16)) return false;
         return lm[16].y < lm[12].y - 0.05 && lm[15].y < lm[11].y - 0.05;
@@ -422,7 +441,10 @@
      * vol-up does not accumulate.
      */
     volUp: {
-      name: 'volUp', type: 'hold', label: 'Lautstärke +', holdFrames: 20,
+      name: 'volUp',
+      type: 'hold',
+      label: 'Lautstärke +',
+      holdFrames: 20,
       conflicts: ['confirm'],
       check(lm) {
         if (!_v(lm, 0, 16)) return false;
@@ -432,7 +454,10 @@
 
     /** Vol Down – right wrist held below the right hip. */
     volDown: {
-      name: 'volDown', type: 'hold', label: 'Lautstärke -', holdFrames: 20,
+      name: 'volDown',
+      type: 'hold',
+      label: 'Lautstärke -',
+      holdFrames: 20,
       check(lm) {
         if (!_v(lm, 16, 24)) return false;
         return lm[16].y > lm[24].y + 0.05;
@@ -444,11 +469,14 @@
      * Blocked by 'stop': T-pose also satisfies this condition.
      */
     forward: {
-      name: 'forward', type: 'hold', label: 'Vorwärts →', holdFrames: 30,
+      name: 'forward',
+      type: 'hold',
+      label: 'Vorwärts →',
+      holdFrames: 30,
       conflicts: ['stop'],
       check(lm) {
         if (!_v(lm, 12, 16)) return false;
-        return (lm[12].x - lm[16].x) > _XV && Math.abs(lm[16].y - lm[12].y) < _YT;
+        return lm[12].x - lm[16].x > _XV && Math.abs(lm[16].y - lm[12].y) < _YT;
       },
     },
 
@@ -457,11 +485,14 @@
      * Blocked by 'stop' for the same reason as 'forward'.
      */
     backward: {
-      name: 'backward', type: 'hold', label: '← Rückwärts', holdFrames: 30,
+      name: 'backward',
+      type: 'hold',
+      label: '← Rückwärts',
+      holdFrames: 30,
       conflicts: ['stop'],
       check(lm) {
         if (!_v(lm, 11, 15)) return false;
-        return (lm[15].x - lm[11].x) > _XV && Math.abs(lm[15].y - lm[11].y) < _YT;
+        return lm[15].x - lm[11].x > _XV && Math.abs(lm[15].y - lm[11].y) < _YT;
       },
     },
 
@@ -470,17 +501,18 @@
      * Uses the previous history frame to measure per-frame displacement.
      */
     pause: {
-      name: 'pause', type: 'hold', label: 'Pause (Stillstand)', holdFrames: 45,
+      name: 'pause',
+      type: 'hold',
+      label: 'Pause (Stillstand)',
+      holdFrames: 45,
       check(lm, history) {
         if (!_v(lm, 0, 11, 12, 16, 24)) return false;
         if (history.length < 2) return false;
-        const prev    = history[history.length - 2];
-        const rW      = lm[16];
-        const moved   = Math.abs(rW.x - prev[16].x) + Math.abs(rW.y - prev[16].y);
+        const prev = history[history.length - 2];
+        const rW = lm[16];
+        const moved = Math.abs(rW.x - prev[16].x) + Math.abs(rW.y - prev[16].y);
         const centerX = (lm[11].x + lm[12].x) / 2;
-        const inZone  = rW.y > lm[0].y &&
-                        rW.y < lm[24].y - 0.05 &&
-                        Math.abs(rW.x - centerX) < 0.15;
+        const inZone = rW.y > lm[0].y && rW.y < lm[24].y - 0.05 && Math.abs(rW.x - centerX) < 0.15;
         return moved < 0.008 && inZone;
       },
     },
@@ -489,41 +521,47 @@
 
     /** Scroll Up – right wrist moves quickly upward. */
     scrollUp: {
-      name: 'scrollUp', type: 'velocity', label: 'Scroll ↑',
+      name: 'scrollUp',
+      type: 'velocity',
+      label: 'Scroll ↑',
       check(lm, history) {
         const H = 15;
         if (history.length < H) return false;
         const s = history.slice(-H);
         if (!s.every(f => f[16].visibility > _MV)) return false;
         const oldY = _avg(s.slice(0, 5).map(f => f[16].y));
-        const newY = _avg(s.slice(-5).map(f  => f[16].y));
+        const newY = _avg(s.slice(-5).map(f => f[16].y));
         return oldY - newY > 0.18;
       },
     },
 
     /** Scroll Down – right wrist moves quickly downward. */
     scrollDown: {
-      name: 'scrollDown', type: 'velocity', label: 'Scroll ↓',
+      name: 'scrollDown',
+      type: 'velocity',
+      label: 'Scroll ↓',
       check(lm, history) {
         const H = 15;
         if (history.length < H) return false;
         const s = history.slice(-H);
         if (!s.every(f => f[16].visibility > _MV)) return false;
         const oldY = _avg(s.slice(0, 5).map(f => f[16].y));
-        const newY = _avg(s.slice(-5).map(f  => f[16].y));
+        const newY = _avg(s.slice(-5).map(f => f[16].y));
         return newY - oldY > 0.18;
       },
     },
 
     /** Zoom In – both wrists move closer together. */
     zoomIn: {
-      name: 'zoomIn', type: 'velocity', label: 'Zoom +',
+      name: 'zoomIn',
+      type: 'velocity',
+      label: 'Zoom +',
       check(lm, history) {
         const H = 20;
         if (history.length < H) return false;
         const s = history.slice(-H);
         if (!s.every(f => Math.min(f[15].visibility, f[16].visibility) > _MV)) return false;
-        const d    = f => Math.hypot(f[15].x - f[16].x, f[15].y - f[16].y);
+        const d = f => Math.hypot(f[15].x - f[16].x, f[15].y - f[16].y);
         const oldD = _avg(s.slice(0, 5).map(d));
         const newD = _avg(s.slice(-5).map(d));
         return oldD - newD > 0.15;
@@ -532,13 +570,15 @@
 
     /** Zoom Out – both wrists move further apart. */
     zoomOut: {
-      name: 'zoomOut', type: 'velocity', label: 'Zoom −',
+      name: 'zoomOut',
+      type: 'velocity',
+      label: 'Zoom −',
       check(lm, history) {
         const H = 20;
         if (history.length < H) return false;
         const s = history.slice(-H);
         if (!s.every(f => Math.min(f[15].visibility, f[16].visibility) > _MV)) return false;
-        const d    = f => Math.hypot(f[15].x - f[16].x, f[15].y - f[16].y);
+        const d = f => Math.hypot(f[15].x - f[16].x, f[15].y - f[16].y);
         const oldD = _avg(s.slice(0, 5).map(d));
         const newD = _avg(s.slice(-5).map(d));
         return newD - oldD > 0.15;
@@ -551,22 +591,22 @@
      * fires when the running x-average decreases by more than the threshold.
      */
     swipeRight: {
-      name: 'swipeRight', type: 'velocity', label: 'Wischen → (Schnell)',
+      name: 'swipeRight',
+      type: 'velocity',
+      label: 'Wischen → (Schnell)',
       check(lm, history) {
         const H = 15;
         if (history.length < H) return false;
         const s = history.slice(-H);
         if (!s.every(f => f[16].visibility > _MV)) return false;
         const oldX = _avg(s.slice(0, 5).map(f => f[16].x));
-        const newX = _avg(s.slice(-5).map(f  => f[16].x));
+        const newX = _avg(s.slice(-5).map(f => f[16].x));
         return oldX - newX > 0.15;
       },
     },
-
   };
 
   // ── Export ──────────────────────────────────────────────────────────────────
 
   global.GestureLibrary = GestureLibrary;
-
 })(typeof window !== 'undefined' ? window : globalThis);

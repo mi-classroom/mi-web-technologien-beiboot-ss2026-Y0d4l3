@@ -1,284 +1,315 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="de">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GestureQuiz – Körpergesteuertes Web-Quiz</title>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GestureQuiz – Körpergesteuertes Web-Quiz</title>
 
-  <!-- Bootstrap 5 dark theme -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap 5 dark theme -->
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
 
-  <style>
-    body {
-      background: #0d1117;
-      color: #e6edf3;
-      min-height: 100vh;
-    }
+    <style>
+      body {
+        background: #0d1117;
+        color: #e6edf3;
+        min-height: 100vh;
+      }
 
-    /* ── Camera picture-in-picture ─────────────────────────────────── */
-    #cam-pip {
-      position: fixed;
-      top: 1rem;
-      right: 1rem;
-      width: 180px;
-      z-index: 100;
-      background: #161b22;
-      border: 1px solid #30363d;
-      border-radius: 8px;
-      overflow: hidden;
-    }
-    #cam-pip video,
-    #cam-pip canvas {
-      display: block;
-      width: 100%;
-      transform: scaleX(-1); /* natural selfie mirror */
-    }
-    #cam-pip canvas {
-      position: absolute;
-      top: 0;
-      left: 0;
-    }
-    #cam-status {
-      font-size: 0.7rem;
-      text-align: center;
-      padding: 3px 0;
-      background: #161b22;
-      color: #8b949e;
-    }
+      /* ── Camera picture-in-picture ─────────────────────────────────── */
+      #cam-pip {
+        position: fixed;
+        top: 1rem;
+        right: 1rem;
+        width: 180px;
+        z-index: 100;
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      #cam-pip video,
+      #cam-pip canvas {
+        display: block;
+        width: 100%;
+        transform: scaleX(-1); /* natural selfie mirror */
+      }
+      #cam-pip canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+      }
+      #cam-status {
+        font-size: 0.7rem;
+        text-align: center;
+        padding: 3px 0;
+        background: #161b22;
+        color: #8b949e;
+      }
 
-    /* ── Screens ───────────────────────────────────────────────────── */
-    .screen { display: none; }
-    .screen.active { display: block; }
+      /* ── Screens ───────────────────────────────────────────────────── */
+      .screen {
+        display: none;
+      }
+      .screen.active {
+        display: block;
+      }
 
-    /* ── Answer cards ──────────────────────────────────────────────── */
-    .answer-card {
-      border: 2px solid #30363d;
-      background: #161b22;
-      border-radius: 8px;
-      transition: border-color 0.2s, background 0.2s;
-    }
-    .answer-card.correct  { border-color: #2ea043; background: rgba(46,160,67,.12); }
-    .answer-card.wrong    { border-color: #f85149; background: rgba(248,81,73,.12); }
-    .answer-card.pending  { border-color: #388bfd; background: rgba(56,139,253,.08); }
+      /* ── Answer cards ──────────────────────────────────────────────── */
+      .answer-card {
+        border: 2px solid #30363d;
+        background: #161b22;
+        border-radius: 8px;
+        transition:
+          border-color 0.2s,
+          background 0.2s;
+      }
+      .answer-card.correct {
+        border-color: #2ea043;
+        background: rgba(46, 160, 67, 0.12);
+      }
+      .answer-card.wrong {
+        border-color: #f85149;
+        background: rgba(248, 81, 73, 0.12);
+      }
+      .answer-card.pending {
+        border-color: #388bfd;
+        background: rgba(56, 139, 253, 0.08);
+      }
 
-    /* ── Gesture icon pill ─────────────────────────────────────────── */
-    .gest-pill {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 48px;
-      height: 48px;
-      font-size: 1.4rem;
-      border-radius: 50%;
-      background: #21262d;
-      flex-shrink: 0;
-    }
+      /* ── Gesture icon pill ─────────────────────────────────────────── */
+      .gest-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 48px;
+        height: 48px;
+        font-size: 1.4rem;
+        border-radius: 50%;
+        background: #21262d;
+        flex-shrink: 0;
+      }
 
-    /* ── Progress bars ─────────────────────────────────────────────── */
-    .hold-bar { height: 5px; }
+      /* ── Progress bars ─────────────────────────────────────────────── */
+      .hold-bar {
+        height: 5px;
+      }
 
-    /* ── Feedback flash ────────────────────────────────────────────── */
-    #feedback {
-      position: fixed;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 6rem;
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity 0.2s;
-      z-index: 300;
-    }
-    #feedback.show { opacity: 1; }
+      /* ── Feedback flash ────────────────────────────────────────────── */
+      #feedback {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 6rem;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.2s;
+        z-index: 300;
+      }
+      #feedback.show {
+        opacity: 1;
+      }
 
-    /* ── Question card ─────────────────────────────────────────────── */
-    #question-card {
-      background: #161b22;
-      border: 1px solid #30363d;
-      border-radius: 8px;
-    }
-    #question-text { font-size: 1.35rem; font-weight: 600; line-height: 1.4; }
-  </style>
-</head>
-<body>
-
-  <!-- Camera PIP (hidden until game starts) -->
-  <div id="cam-pip" class="d-none">
-    <video id="cam-video" playsinline autoplay muted></video>
-    <canvas id="cam-canvas"></canvas>
-    <div id="cam-status">Initialisiere…</div>
-  </div>
-
-  <!-- Feedback emoji overlay -->
-  <div id="feedback"></div>
-
-  <!-- ══════════════ START SCREEN ══════════════ -->
-  <div id="screen-start" class="screen active container py-5">
-    <div class="text-center mb-5">
-      <h1 class="display-4 fw-bold mb-2">GestureQuiz</h1>
-      <p class="text-secondary fs-5">Beantworte 10 Web-Fragen – mit deinem Körper</p>
+      /* ── Question card ─────────────────────────────────────────────── */
+      #question-card {
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 8px;
+      }
+      #question-text {
+        font-size: 1.35rem;
+        font-weight: 600;
+        line-height: 1.4;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Camera PIP (hidden until game starts) -->
+    <div id="cam-pip" class="d-none">
+      <video id="cam-video" playsinline autoplay muted></video>
+      <canvas id="cam-canvas"></canvas>
+      <div id="cam-status">Initialisiere…</div>
     </div>
 
-    <div class="row justify-content-center">
-      <div class="col-md-7 col-lg-6">
+    <!-- Feedback emoji overlay -->
+    <div id="feedback"></div>
 
-        <!-- Instructions card -->
-        <div class="card mb-4" style="background:#161b22;border-color:#30363d;">
-          <div class="card-body">
-            <h6 class="text-secondary text-uppercase mb-3" style="font-size:.75rem;letter-spacing:.08em;">
-              Steuerung
-            </h6>
-            <div class="d-flex flex-column gap-3">
-              <div class="d-flex align-items-center gap-3">
-                <span class="gest-pill">→</span>
-                <div>
-                  <strong>Rechten Arm ausstrecken</strong>
-                  <div class="text-secondary small">Antwort A wählen</div>
+    <!-- ══════════════ START SCREEN ══════════════ -->
+    <div id="screen-start" class="screen active container py-5">
+      <div class="text-center mb-5">
+        <h1 class="display-4 fw-bold mb-2">GestureQuiz</h1>
+        <p class="text-secondary fs-5">Beantworte 10 Web-Fragen – mit deinem Körper</p>
+      </div>
+
+      <div class="row justify-content-center">
+        <div class="col-md-7 col-lg-6">
+          <!-- Instructions card -->
+          <div class="card mb-4" style="background: #161b22; border-color: #30363d">
+            <div class="card-body">
+              <h6
+                class="text-secondary text-uppercase mb-3"
+                style="font-size: 0.75rem; letter-spacing: 0.08em"
+              >
+                Steuerung
+              </h6>
+              <div class="d-flex flex-column gap-3">
+                <div class="d-flex align-items-center gap-3">
+                  <span class="gest-pill">→</span>
+                  <div>
+                    <strong>Rechten Arm ausstrecken</strong>
+                    <div class="text-secondary small">Antwort A wählen</div>
+                  </div>
+                </div>
+                <div class="d-flex align-items-center gap-3">
+                  <span class="gest-pill">←</span>
+                  <div>
+                    <strong>Linken Arm ausstrecken</strong>
+                    <div class="text-secondary small">Antwort B wählen</div>
+                  </div>
+                </div>
+                <div class="d-flex align-items-center gap-3">
+                  <span class="gest-pill">🙌</span>
+                  <div>
+                    <strong>Beide Arme über Schultern</strong>
+                    <div class="text-secondary small">Antwort C wählen</div>
+                  </div>
+                </div>
+                <div class="d-flex align-items-center gap-3">
+                  <span class="gest-pill">✋</span>
+                  <div>
+                    <strong>T-Pose (beide Arme seitlich)</strong>
+                    <div class="text-secondary small">Frage überspringen</div>
+                  </div>
                 </div>
               </div>
-              <div class="d-flex align-items-center gap-3">
-                <span class="gest-pill">←</span>
-                <div>
-                  <strong>Linken Arm ausstrecken</strong>
-                  <div class="text-secondary small">Antwort B wählen</div>
-                </div>
-              </div>
-              <div class="d-flex align-items-center gap-3">
-                <span class="gest-pill">🙌</span>
-                <div>
-                  <strong>Beide Arme über Schultern</strong>
-                  <div class="text-secondary small">Antwort C wählen</div>
-                </div>
-              </div>
-              <div class="d-flex align-items-center gap-3">
-                <span class="gest-pill">✋</span>
-                <div>
-                  <strong>T-Pose (beide Arme seitlich)</strong>
-                  <div class="text-secondary small">Frage überspringen</div>
-                </div>
-              </div>
+              <hr style="border-color: #30363d" />
+              <p class="text-secondary small mb-0">
+                Halte jede Geste ~1 Sekunde – der Fortschrittsbalken zeigt dir, wie weit du bist.
+                Kamera-Zugriff wird beim Start angefragt.
+              </p>
             </div>
-            <hr style="border-color:#30363d;">
-            <p class="text-secondary small mb-0">
-              Halte jede Geste ~1 Sekunde – der Fortschrittsbalken zeigt dir, wie weit du bist.
-              Kamera-Zugriff wird beim Start angefragt.
-            </p>
+          </div>
+
+          <div class="text-center">
+            <button id="btn-start" class="btn btn-primary btn-lg px-5">
+              Kamera starten &amp; spielen
+            </button>
           </div>
         </div>
+      </div>
+    </div>
+    <!-- /screen-start -->
 
-        <div class="text-center">
-          <button id="btn-start" class="btn btn-primary btn-lg px-5">
-            Kamera starten &amp; spielen
-          </button>
+    <!-- ══════════════ GAME SCREEN ══════════════ -->
+    <div id="screen-game" class="screen container py-4" style="max-width: 680px">
+      <!-- Header bar -->
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <span class="text-secondary">
+          Frage <strong id="q-num" class="text-white">1</strong>
+          <span class="text-secondary"> / </span>
+          <strong id="q-total" class="text-white">10</strong>
+        </span>
+        <span class="badge fs-6 px-3 py-2" style="background: #21262d; color: #e6edf3">
+          Punkte: <span id="score">0</span>
+        </span>
+      </div>
+
+      <!-- Overall progress bar -->
+      <div class="progress mb-4" style="height: 4px; background: #21262d">
+        <div
+          id="overall-progress"
+          class="progress-bar bg-primary"
+          style="width: 0%; transition: width 0.4s"
+        ></div>
+      </div>
+
+      <!-- Question -->
+      <div id="question-card" class="p-4 mb-4 text-center">
+        <p class="text-secondary small mb-2">Frage</p>
+        <p id="question-text" class="mb-0">…</p>
+      </div>
+
+      <!-- Answer cards -->
+      <div class="d-flex flex-column gap-3 mb-4">
+        <div class="answer-card p-3 d-flex align-items-center gap-3" id="card-A">
+          <span class="gest-pill" style="color: #388bfd">→</span>
+          <div class="flex-grow-1">
+            <div class="text-secondary" style="font-size: 0.78rem">Rechten Arm ausstrecken</div>
+            <strong id="ans-A">…</strong>
+          </div>
+          <span class="badge bg-primary">A</span>
+        </div>
+
+        <div class="answer-card p-3 d-flex align-items-center gap-3" id="card-B">
+          <span class="gest-pill" style="color: #2ea043">←</span>
+          <div class="flex-grow-1">
+            <div class="text-secondary" style="font-size: 0.78rem">Linken Arm ausstrecken</div>
+            <strong id="ans-B">…</strong>
+          </div>
+          <span class="badge bg-success">B</span>
+        </div>
+
+        <div class="answer-card p-3 d-flex align-items-center gap-3" id="card-C">
+          <span class="gest-pill">🙌</span>
+          <div class="flex-grow-1">
+            <div class="text-secondary" style="font-size: 0.78rem">Beide Arme über Schultern</div>
+            <strong id="ans-C">…</strong>
+          </div>
+          <span class="badge" style="background: #9e6a03; color: #fff">C</span>
+        </div>
+      </div>
+
+      <!-- Hold-gesture progress bars -->
+      <div class="card" style="background: #161b22; border-color: #30363d">
+        <div class="card-body py-2 px-3">
+          <p class="text-secondary mb-2" style="font-size: 0.78rem">Halte-Fortschritt</p>
+          <div id="hold-bars" class="d-flex flex-column gap-2"></div>
+          <p class="text-secondary mt-2 mb-0" style="font-size: 0.75rem">
+            T-Pose = Frage überspringen &nbsp;|&nbsp; Arme kreuzen = Spiel abbrechen
+          </p>
         </div>
       </div>
     </div>
-  </div><!-- /screen-start -->
+    <!-- /screen-game -->
 
-
-  <!-- ══════════════ GAME SCREEN ══════════════ -->
-  <div id="screen-game" class="screen container py-4" style="max-width:680px;">
-
-    <!-- Header bar -->
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <span class="text-secondary">
-        Frage <strong id="q-num" class="text-white">1</strong>
-        <span class="text-secondary"> / </span>
-        <strong id="q-total" class="text-white">10</strong>
-      </span>
-      <span class="badge fs-6 px-3 py-2" style="background:#21262d;color:#e6edf3;">
-        Punkte: <span id="score">0</span>
-      </span>
-    </div>
-
-    <!-- Overall progress bar -->
-    <div class="progress mb-4" style="height:4px;background:#21262d;">
-      <div id="overall-progress" class="progress-bar bg-primary" style="width:0%;transition:width .4s;"></div>
-    </div>
-
-    <!-- Question -->
-    <div id="question-card" class="p-4 mb-4 text-center">
-      <p class="text-secondary small mb-2">Frage</p>
-      <p id="question-text" class="mb-0">…</p>
-    </div>
-
-    <!-- Answer cards -->
-    <div class="d-flex flex-column gap-3 mb-4">
-
-      <div class="answer-card p-3 d-flex align-items-center gap-3" id="card-A">
-        <span class="gest-pill" style="color:#388bfd;">→</span>
-        <div class="flex-grow-1">
-          <div class="text-secondary" style="font-size:.78rem;">Rechten Arm ausstrecken</div>
-          <strong id="ans-A">…</strong>
-        </div>
-        <span class="badge bg-primary">A</span>
-      </div>
-
-      <div class="answer-card p-3 d-flex align-items-center gap-3" id="card-B">
-        <span class="gest-pill" style="color:#2ea043;">←</span>
-        <div class="flex-grow-1">
-          <div class="text-secondary" style="font-size:.78rem;">Linken Arm ausstrecken</div>
-          <strong id="ans-B">…</strong>
-        </div>
-        <span class="badge bg-success">B</span>
-      </div>
-
-      <div class="answer-card p-3 d-flex align-items-center gap-3" id="card-C">
-        <span class="gest-pill">🙌</span>
-        <div class="flex-grow-1">
-          <div class="text-secondary" style="font-size:.78rem;">Beide Arme über Schultern</div>
-          <strong id="ans-C">…</strong>
-        </div>
-        <span class="badge" style="background:#9e6a03;color:#fff;">C</span>
-      </div>
-
-    </div>
-
-    <!-- Hold-gesture progress bars -->
-    <div class="card" style="background:#161b22;border-color:#30363d;">
-      <div class="card-body py-2 px-3">
-        <p class="text-secondary mb-2" style="font-size:.78rem;">Halte-Fortschritt</p>
-        <div id="hold-bars" class="d-flex flex-column gap-2"></div>
-        <p class="text-secondary mt-2 mb-0" style="font-size:.75rem;">
-          T-Pose = Frage überspringen &nbsp;|&nbsp; Arme kreuzen = Spiel abbrechen
+    <!-- ══════════════ RESULTS SCREEN ══════════════ -->
+    <div id="screen-results" class="screen container py-5" style="max-width: 640px">
+      <div class="text-center mb-4">
+        <div id="result-emoji" class="display-1">🎉</div>
+        <h2 class="mt-3 fw-bold">Quiz beendet!</h2>
+        <p class="fs-5">
+          <strong id="final-score">0</strong> von <strong id="final-total">10</strong> richtig
         </p>
+        <p id="result-msg" class="text-secondary"></p>
+      </div>
+
+      <div id="result-list" class="mb-4 d-flex flex-column gap-2"></div>
+
+      <div class="text-center">
+        <p class="text-secondary small">T-Pose oder Arme kreuzen → nochmal spielen</p>
+        <button id="btn-restart" class="btn btn-outline-primary px-4">Nochmal spielen</button>
       </div>
     </div>
+    <!-- /screen-results -->
 
-  </div><!-- /screen-game -->
+    <!-- MediaPipe (camera utils + pose) -->
+    <script
+      src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"
+      crossorigin="anonymous"
+    ></script>
 
+    <!-- GestureLibrary – treated as external dependency, referenced by path -->
+    <script src="../gesture-lib/gesture-library.js"></script>
 
-  <!-- ══════════════ RESULTS SCREEN ══════════════ -->
-  <div id="screen-results" class="screen container py-5" style="max-width:640px;">
-    <div class="text-center mb-4">
-      <div id="result-emoji" class="display-1">🎉</div>
-      <h2 class="mt-3 fw-bold">Quiz beendet!</h2>
-      <p class="fs-5">
-        <strong id="final-score">0</strong> von
-        <strong id="final-total">10</strong> richtig
-      </p>
-      <p id="result-msg" class="text-secondary"></p>
-    </div>
-
-    <div id="result-list" class="mb-4 d-flex flex-column gap-2"></div>
-
-    <div class="text-center">
-      <p class="text-secondary small">T-Pose oder Arme kreuzen → nochmal spielen</p>
-      <button id="btn-restart" class="btn btn-outline-primary px-4">Nochmal spielen</button>
-    </div>
-  </div><!-- /screen-results -->
-
-
-  <!-- MediaPipe (camera utils + pose) -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
-
-  <!-- GestureLibrary – treated as external dependency, referenced by path -->
-  <script src="../gesture-lib/gesture-library.js"></script>
-
-  <!-- Application logic -->
-  <script src="app.js"></script>
-
-</body>
+    <!-- Application logic -->
+    <script src="app.js"></script>
+  </body>
 </html>

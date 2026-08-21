@@ -15,18 +15,18 @@ MediaPipe liefert Landmark-Koordinaten im **nativen Bildraum** (nicht gespiegelt
 
 ## Mapping-Tabelle
 
-| # | Interaktion | Nahbereich: Mögliche Geste | Daten & Reliabilität (Nah) | Fernbereich: Mögliche Geste | Daten & Reliabilität (Fern) |
-|---|---|---|---|---|---|
-| 1 | **Vorwärts** (nächste Folie) | Rechten Arm seitlich nach rechts ausstrecken und ≥1 s halten | RIGHT_SHOULDER (idx 12) + RIGHT_WRIST (idx 16); visibility > 0,7 gut erreichbar; kaum Rauschen bei guter Beleuchtung; **implementiert** | Rechten Arm vollständig in Richtung rechten Bildrand strecken (erkennbarer Winkel Schulter→Ellenbogen→Handgelenk) | Alle drei Punkte müssen sichtbar sein; bei >2 m Distanz fallen visibility-Scores; mittlere Reliabilität |
-| 2 | **Rückwärts** (vorherige Folie) | Linken Arm seitlich nach links ausstrecken und ≥1 s halten | LEFT_SHOULDER (idx 11) + LEFT_WRIST (idx 15); symmetrisch zu Geste 1; gleich zuverlässig; **implementiert** | Linken Arm vollständig in Richtung linken Bildrand strecken | Symmetrisch zu #1; mittlere Reliabilität |
-| 3 | **Auswahl bestätigen** | Beide Handgelenke gleichzeitig über die Schulterlinie anheben | Alle vier Punkte (idx 11, 12, 15, 16); zuverlässig solange Person zentral im Bild steht; selten zufällig ausgelöst | Beide Arme vollständig nach oben strecken (Siegergeste) | Sehr großräumige, distinktive Pose; Landmarks bleiben auch auf Distanz sichtbar; hoch zuverlässig |
-| 4 | **Abbrechen / Stop** | Arme vor der Brust kreuzen (rechtes Handgelenk links von linker Schulter und umgekehrt) | Handgelenk-Koordinaten müssen tatsächlich kreuzen; durch Verdeckung (Occlusion) können überdeckte Landmarks instabil werden; mittlere Reliabilität | T-Pose: beide Arme horizontal seitlich ausstrecken | Sehr auffällige Pose; solange alle 4 Punkte sichtbar, hohe Reliabilität |
-| 5 | **Scrollen nach oben** | Schnelle Aufwärtswischgeste mit der rechten Hand (Δy > 0,3 in < 0,5 s) | Δy über kurzes Zeitfenster; empfindlich für Motion Blur (visibility bricht ein); schwerer von normaler Handbewegung zu trennen; niedrige Reliabilität | Oberkörper nach hinten lehnen (Nase-z-Wert nimmt ab) | Z-Achse extrem verrauscht bei 2D-Webcam; kaum brauchbar ohne aufwändiges Smoothing |
-| 6 | **Scrollen nach unten** | Schnelle Abwärtswischgeste mit der rechten Hand | Wie #5; dynamische Swipe-Gesten generell schwerer zu stabilisieren als statische Haltegesten | Oberkörper nach vorne lehnen (Nase-z steigt) | Z-Achse unzuverlässig; gleiche Probleme wie #5 |
-| 7 | **Pause / Weiter** | Rechte offene Hand zur Kamera halten und ≥1,5 s stillhalten | Handgelenk-Stillstand (Δx + Δy < 0,02 über alle Buffer-Frames); MediaPipe Pose hat keine Fingerdetaildaten – „offen" ist nicht direkt prüfbar; mittlere Reliabilität | Person bewegt sich für ≥2 s überhaupt nicht | Bewegungsmaß aller Landmarks zusammen; akkumulierter Drift unter Schwelle; gut implementierbar |
-| 8 | **Lautstärke erhöhen** | Rechte Hand über den Kopf heben (RIGHT_WRIST.y < nose.y) | Wrist-zu-Nose-Vergleich; beide Landmarks mit hoher visibility; robust und selten zufällig | Rechter Arm gestreckt über Kopfhöhe | Bei Fern-Distanz weiterhin sichtbar; robust |
-| 9 | **Lautstärke senken** | Rechte Hand unter die Hüfte senken (RIGHT_WRIST.y > RIGHT_HIP.y) | Wrist-zu-Hip-Vergleich (idx 16, 24); Hüft-Landmarks bei Frontalaufnahme gut sichtbar; zuverlässig | Rechter Arm deutlich unter Hüftniveau gesenkt | Gut erkennbar auch auf Distanz |
-| 10 | **Zoom / Skalieren** | Beide Hände nähern sich / entfernen sich voneinander (Abstandsänderung) | Euklidischer Abstand beider Handgelenke; mittlere Reliabilität; Überlappungsgefahr bei Kreuzung | Person tritt auf Kamera zu oder weg (z-Wert aller Landmarks) | Z-Achse zu unzuverlässig für flüssige Zoom-Steuerung; nicht empfohlen |
+| #   | Interaktion                     | Nahbereich: Mögliche Geste                                                              | Daten & Reliabilität (Nah)                                                                                                                                           | Fernbereich: Mögliche Geste                                                                                       | Daten & Reliabilität (Fern)                                                                             |
+| --- | ------------------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| 1   | **Vorwärts** (nächste Folie)    | Rechten Arm seitlich nach rechts ausstrecken und ≥1 s halten                            | RIGHT_SHOULDER (idx 12) + RIGHT_WRIST (idx 16); visibility > 0,7 gut erreichbar; kaum Rauschen bei guter Beleuchtung; **implementiert**                              | Rechten Arm vollständig in Richtung rechten Bildrand strecken (erkennbarer Winkel Schulter→Ellenbogen→Handgelenk) | Alle drei Punkte müssen sichtbar sein; bei >2 m Distanz fallen visibility-Scores; mittlere Reliabilität |
+| 2   | **Rückwärts** (vorherige Folie) | Linken Arm seitlich nach links ausstrecken und ≥1 s halten                              | LEFT_SHOULDER (idx 11) + LEFT_WRIST (idx 15); symmetrisch zu Geste 1; gleich zuverlässig; **implementiert**                                                          | Linken Arm vollständig in Richtung linken Bildrand strecken                                                       | Symmetrisch zu #1; mittlere Reliabilität                                                                |
+| 3   | **Auswahl bestätigen**          | Beide Handgelenke gleichzeitig über die Schulterlinie anheben                           | Alle vier Punkte (idx 11, 12, 15, 16); zuverlässig solange Person zentral im Bild steht; selten zufällig ausgelöst                                                   | Beide Arme vollständig nach oben strecken (Siegergeste)                                                           | Sehr großräumige, distinktive Pose; Landmarks bleiben auch auf Distanz sichtbar; hoch zuverlässig       |
+| 4   | **Abbrechen / Stop**            | Arme vor der Brust kreuzen (rechtes Handgelenk links von linker Schulter und umgekehrt) | Handgelenk-Koordinaten müssen tatsächlich kreuzen; durch Verdeckung (Occlusion) können überdeckte Landmarks instabil werden; mittlere Reliabilität                   | T-Pose: beide Arme horizontal seitlich ausstrecken                                                                | Sehr auffällige Pose; solange alle 4 Punkte sichtbar, hohe Reliabilität                                 |
+| 5   | **Scrollen nach oben**          | Schnelle Aufwärtswischgeste mit der rechten Hand (Δy > 0,3 in < 0,5 s)                  | Δy über kurzes Zeitfenster; empfindlich für Motion Blur (visibility bricht ein); schwerer von normaler Handbewegung zu trennen; niedrige Reliabilität                | Oberkörper nach hinten lehnen (Nase-z-Wert nimmt ab)                                                              | Z-Achse extrem verrauscht bei 2D-Webcam; kaum brauchbar ohne aufwändiges Smoothing                      |
+| 6   | **Scrollen nach unten**         | Schnelle Abwärtswischgeste mit der rechten Hand                                         | Wie #5; dynamische Swipe-Gesten generell schwerer zu stabilisieren als statische Haltegesten                                                                         | Oberkörper nach vorne lehnen (Nase-z steigt)                                                                      | Z-Achse unzuverlässig; gleiche Probleme wie #5                                                          |
+| 7   | **Pause / Weiter**              | Rechte offene Hand zur Kamera halten und ≥1,5 s stillhalten                             | Handgelenk-Stillstand (Δx + Δy < 0,02 über alle Buffer-Frames); MediaPipe Pose hat keine Fingerdetaildaten – „offen" ist nicht direkt prüfbar; mittlere Reliabilität | Person bewegt sich für ≥2 s überhaupt nicht                                                                       | Bewegungsmaß aller Landmarks zusammen; akkumulierter Drift unter Schwelle; gut implementierbar          |
+| 8   | **Lautstärke erhöhen**          | Rechte Hand über den Kopf heben (RIGHT_WRIST.y < nose.y)                                | Wrist-zu-Nose-Vergleich; beide Landmarks mit hoher visibility; robust und selten zufällig                                                                            | Rechter Arm gestreckt über Kopfhöhe                                                                               | Bei Fern-Distanz weiterhin sichtbar; robust                                                             |
+| 9   | **Lautstärke senken**           | Rechte Hand unter die Hüfte senken (RIGHT_WRIST.y > RIGHT_HIP.y)                        | Wrist-zu-Hip-Vergleich (idx 16, 24); Hüft-Landmarks bei Frontalaufnahme gut sichtbar; zuverlässig                                                                    | Rechter Arm deutlich unter Hüftniveau gesenkt                                                                     | Gut erkennbar auch auf Distanz                                                                          |
+| 10  | **Zoom / Skalieren**            | Beide Hände nähern sich / entfernen sich voneinander (Abstandsänderung)                 | Euklidischer Abstand beider Handgelenke; mittlere Reliabilität; Überlappungsgefahr bei Kreuzung                                                                      | Person tritt auf Kamera zu oder weg (z-Wert aller Landmarks)                                                      | Z-Achse zu unzuverlässig für flüssige Zoom-Steuerung; nicht empfohlen                                   |
 
 ---
 
@@ -65,14 +65,14 @@ Beide Gesten folgen demselben algorithmischen Muster:
 
 ### Parameter
 
-| Parameter | Wert | Bedeutung |
-|---|---|---|
-| `BUFFER_SIZE` | 5 Frames | Größe des Glättungspuffers (gleitender Mittelwert) |
-| `HOLD_FRAMES` | 30 Frames (~1 s bei 30 fps) | Mindesthaltezeit bevor Geste auslöst |
-| `COOLDOWN_FRAMES` | 60 Frames (~2 s) | Sperrzeit nach Auslösung, verhindert Mehrfach-Trigger |
-| `X_THRESH` | 0,20 | Minimale horizontale Ausdehnung (20 % der Bildbreite) |
-| `Y_TOL` | 0,18 | Maximale vertikale Abweichung von Schulterhöhe (18 % der Bildhöhe) |
-| `MIN_VIS` | 0,60 | Minimaler Visibility-Score für verwendete Landmarks |
+| Parameter         | Wert                        | Bedeutung                                                          |
+| ----------------- | --------------------------- | ------------------------------------------------------------------ |
+| `BUFFER_SIZE`     | 5 Frames                    | Größe des Glättungspuffers (gleitender Mittelwert)                 |
+| `HOLD_FRAMES`     | 30 Frames (~1 s bei 30 fps) | Mindesthaltezeit bevor Geste auslöst                               |
+| `COOLDOWN_FRAMES` | 60 Frames (~2 s)            | Sperrzeit nach Auslösung, verhindert Mehrfach-Trigger              |
+| `X_THRESH`        | 0,20                        | Minimale horizontale Ausdehnung (20 % der Bildbreite)              |
+| `Y_TOL`           | 0,18                        | Maximale vertikale Abweichung von Schulterhöhe (18 % der Bildhöhe) |
+| `MIN_VIS`         | 0,60                        | Minimaler Visibility-Score für verwendete Landmarks                |
 
 ### Geste "Vorwärts" – Algorithmus im Detail
 
@@ -127,18 +127,24 @@ Zustandsmaschine: identisch, separater Zähler.
 Erkannte Gesten werden als `CustomEvent` auf `document` gefeuert:
 
 ```javascript
-document.dispatchEvent(new CustomEvent('gesture', {
-  detail: {
-    type:      'forward',          // 'forward' | 'backward'
-    label:     'Vorwärts →',
-    timestamp: '2026-06-02T12:00:00.000Z'
-  }
-}));
+document.dispatchEvent(
+  new CustomEvent('gesture', {
+    detail: {
+      type: 'forward', // 'forward' | 'backward'
+      label: 'Vorwärts →',
+      timestamp: '2026-06-02T12:00:00.000Z',
+    },
+  })
+);
 
 // Verwendung in der Anwendung:
-document.addEventListener('gesture', (e) => {
-  if (e.detail.type === 'forward')  { /* nächste Folie */ }
-  if (e.detail.type === 'backward') { /* vorherige Folie */ }
+document.addEventListener('gesture', e => {
+  if (e.detail.type === 'forward') {
+    /* nächste Folie */
+  }
+  if (e.detail.type === 'backward') {
+    /* vorherige Folie */
+  }
 });
 ```
 
@@ -148,21 +154,21 @@ document.addEventListener('gesture', (e) => {
 
 ### False Positives (unerwünschte Auslösungen)
 
-| Szenario | Wahrscheinlichkeit | Mitigation |
-|---|---|---|
-| Arm kurz seitlich beim Gestikulieren | Mittel | Hold-Timer (30 Frames) fängt kurze Bewegungen ab |
-| Körperdrehung verschiebt Schulterkoordinate | Niedrig | Visibility-Check erkennt oft schlechte Sichtbarkeit |
-| Diagonales Zeigen erfüllt X-Bedingung | Niedrig | Y-Toleranz filtert starke vertikale Abweichungen |
-| Arm zufällig in Geste-Position gehalten | Sehr niedrig | Kombination Winkel + Höhe + Haltezeit macht dies selten |
+| Szenario                                    | Wahrscheinlichkeit | Mitigation                                              |
+| ------------------------------------------- | ------------------ | ------------------------------------------------------- |
+| Arm kurz seitlich beim Gestikulieren        | Mittel             | Hold-Timer (30 Frames) fängt kurze Bewegungen ab        |
+| Körperdrehung verschiebt Schulterkoordinate | Niedrig            | Visibility-Check erkennt oft schlechte Sichtbarkeit     |
+| Diagonales Zeigen erfüllt X-Bedingung       | Niedrig            | Y-Toleranz filtert starke vertikale Abweichungen        |
+| Arm zufällig in Geste-Position gehalten     | Sehr niedrig       | Kombination Winkel + Höhe + Haltezeit macht dies selten |
 
 ### False Negatives (verpasste Gesten)
 
-| Szenario | Wahrscheinlichkeit | Mitigation |
-|---|---|---|
-| Schlechte Beleuchtung → niedrige Visibility | Mittel | Kein direktes Mittel; Nutzer braucht gute Lichtverhältnisse |
-| Arm teilweise aus dem Bild | Mittel | Visibility-Check schlägt an; keine Erkennung (sicherer Fail) |
-| Motion Blur beim schnellen Armstrecken | Niedrig | Smoothing-Buffer hilft; langsames Strecken empfohlen |
-| Person sehr weit von Kamera entfernt | Mittel | Landmarks ungenauer; ggf. X\_THRESH anpassen |
+| Szenario                                    | Wahrscheinlichkeit | Mitigation                                                   |
+| ------------------------------------------- | ------------------ | ------------------------------------------------------------ |
+| Schlechte Beleuchtung → niedrige Visibility | Mittel             | Kein direktes Mittel; Nutzer braucht gute Lichtverhältnisse  |
+| Arm teilweise aus dem Bild                  | Mittel             | Visibility-Check schlägt an; keine Erkennung (sicherer Fail) |
+| Motion Blur beim schnellen Armstrecken      | Niedrig            | Smoothing-Buffer hilft; langsames Strecken empfohlen         |
+| Person sehr weit von Kamera entfernt        | Mittel             | Landmarks ungenauer; ggf. X\_THRESH anpassen                 |
 
 ### Bekannte Stabilitätsprobleme
 

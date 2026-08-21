@@ -96,11 +96,11 @@ const QUESTIONS = [
 
 // Welcher GestureLibrary-Gestenname mappt auf welche Aktion.
 const GESTURE_ACTION = {
-  forward:     'a',        // rechter Arm = Antwort A
-  backward:    'b',        // linker Arm  = Antwort B
-  confirm:     'c',        // beide hoch  = Antwort C
-  stop:        'skip',     // T-Pose      = überspringen
-  armsCrossed: 'restart',  // gekreuzt    = neu starten
+  forward: 'a', // rechter Arm = Antwort A
+  backward: 'b', // linker Arm  = Antwort B
+  confirm: 'c', // beide hoch  = Antwort C
+  stop: 'skip', // T-Pose      = überspringen
+  armsCrossed: 'restart', // gekreuzt    = neu starten
 };
 
 // Gesten, die im Quiz nicht benötigt werden und deaktiviert werden sollen.
@@ -108,54 +108,58 @@ const GESTURE_ACTION = {
 // möglich – die Gesten würden intern aber weiter akkumulieren und könnten
 // das Conflict-System beeinflussen. Deshalb wurde disable() zur Library ergänzt.
 const UNUSED_GESTURES = [
-  'volUp', 'volDown',
-  'scrollUp', 'scrollDown',
-  'zoomIn', 'zoomOut',
-  'swipeRight', 'pause',
+  'volUp',
+  'volDown',
+  'scrollUp',
+  'scrollDown',
+  'zoomIn',
+  'zoomOut',
+  'swipeRight',
+  'pause',
 ];
 
 // ── Spielzustand ──────────────────────────────────────────────────────────────
 
-let lib            = null;
-let cameraRunning  = false;
-let currentIdx     = 0;
-let score          = 0;
-let answers        = [];   // { isCorrect, chosen, correct } pro Frage
-let accepting      = false; // true = Geste wird als Antwort gewertet
+let lib = null;
+let cameraRunning = false;
+let currentIdx = 0;
+let score = 0;
+let answers = []; // { isCorrect, chosen, correct } pro Frage
+let accepting = false; // true = Geste wird als Antwort gewertet
 
 // ── DOM-Referenzen ────────────────────────────────────────────────────────────
 
 const $screens = {
-  start:   document.getElementById('screen-start'),
-  game:    document.getElementById('screen-game'),
+  start: document.getElementById('screen-start'),
+  game: document.getElementById('screen-game'),
   results: document.getElementById('screen-results'),
 };
 
-const $camPip    = document.getElementById('cam-pip');
-const $camVideo  = document.getElementById('cam-video');
+const $camPip = document.getElementById('cam-pip');
+const $camVideo = document.getElementById('cam-video');
 const $camCanvas = document.getElementById('cam-canvas');
 const $camStatus = document.getElementById('cam-status');
 
-const $qNum           = document.getElementById('q-num');
-const $qTotal         = document.getElementById('q-total');
-const $scoreEl        = document.getElementById('score');
-const $overallProg    = document.getElementById('overall-progress');
-const $questionText   = document.getElementById('question-text');
-const $holdBars       = document.getElementById('hold-bars');
-const $feedbackEl     = document.getElementById('feedback');
+const $qNum = document.getElementById('q-num');
+const $qTotal = document.getElementById('q-total');
+const $scoreEl = document.getElementById('score');
+const $overallProg = document.getElementById('overall-progress');
+const $questionText = document.getElementById('question-text');
+const $holdBars = document.getElementById('hold-bars');
+const $feedbackEl = document.getElementById('feedback');
 
-const $cardA  = document.getElementById('card-A');
-const $cardB  = document.getElementById('card-B');
-const $cardC  = document.getElementById('card-C');
-const $ansA   = document.getElementById('ans-A');
-const $ansB   = document.getElementById('ans-B');
-const $ansC   = document.getElementById('ans-C');
+const $cardA = document.getElementById('card-A');
+const $cardB = document.getElementById('card-B');
+const $cardC = document.getElementById('card-C');
+const $ansA = document.getElementById('ans-A');
+const $ansB = document.getElementById('ans-B');
+const $ansC = document.getElementById('ans-C');
 
 const $resultEmoji = document.getElementById('result-emoji');
-const $finalScore  = document.getElementById('final-score');
-const $finalTotal  = document.getElementById('final-total');
-const $resultMsg   = document.getElementById('result-msg');
-const $resultList  = document.getElementById('result-list');
+const $finalScore = document.getElementById('final-score');
+const $finalTotal = document.getElementById('final-total');
+const $resultMsg = document.getElementById('result-msg');
+const $resultList = document.getElementById('result-list');
 
 document.getElementById('btn-start').addEventListener('click', startGame);
 document.getElementById('btn-restart').addEventListener('click', startGame);
@@ -166,24 +170,22 @@ let currentScreen = 'start';
 
 function showScreen(name) {
   currentScreen = name;
-  Object.entries($screens).forEach(([k, el]) =>
-    el.classList.toggle('active', k === name)
-  );
+  Object.entries($screens).forEach(([k, el]) => el.classList.toggle('active', k === name));
 }
 
 // ── Spielstart / Neustart ─────────────────────────────────────────────────────
 
 async function startGame() {
-  score    = 0;
-  answers  = [];
+  score = 0;
+  answers = [];
   accepting = false;
 
   if (!lib) {
     // Erste Runde: Library instanziieren und konfigurieren.
     lib = new GestureLibrary({
-      bufferSize:     5,
-      cooldownFrames: 50,   // ~1.6 s bei 30 fps
-      minVisibility:  0.55,
+      bufferSize: 5,
+      cooldownFrames: 50, // ~1.6 s bei 30 fps
+      minVisibility: 0.55,
     });
 
     lib.useDefaults();
@@ -207,7 +209,7 @@ async function startGame() {
   }
 
   $scoreEl.textContent = '0';
-  $qTotal.textContent  = QUESTIONS.length;
+  $qTotal.textContent = QUESTIONS.length;
 
   $camPip.classList.remove('d-none');
   showScreen('game');
@@ -227,20 +229,20 @@ function loadQuestion(idx) {
   const q = QUESTIONS[idx];
 
   // Karten zurücksetzen
-  [$cardA, $cardB, $cardC].forEach(el =>
-    el.classList.remove('correct', 'wrong', 'pending')
-  );
+  [$cardA, $cardB, $cardC].forEach(el => el.classList.remove('correct', 'wrong', 'pending'));
 
-  $qNum.textContent           = idx + 1;
-  $overallProg.style.width    = `${(idx / QUESTIONS.length) * 100}%`;
-  $questionText.textContent   = q.q;
-  $ansA.textContent           = q.a;
-  $ansB.textContent           = q.b;
-  $ansC.textContent           = q.c;
+  $qNum.textContent = idx + 1;
+  $overallProg.style.width = `${(idx / QUESTIONS.length) * 100}%`;
+  $questionText.textContent = q.q;
+  $ansA.textContent = q.a;
+  $ansB.textContent = q.b;
+  $ansC.textContent = q.c;
 
   // Kurze Sperre: verhindert Soforterkennung beim Laden
   accepting = false;
-  setTimeout(() => { accepting = true; }, 900);
+  setTimeout(() => {
+    accepting = true;
+  }, 900);
 }
 
 function advanceOrFinish() {
@@ -284,10 +286,10 @@ function onGesture({ detail }) {
   }
 
   // Antwort auswerten
-  const q         = QUESTIONS[currentIdx];
+  const q = QUESTIONS[currentIdx];
   const isCorrect = action === q.correct;
-  const cardMap   = { a: $cardA, b: $cardB, c: $cardC };
-  const chosenCard  = cardMap[action];
+  const cardMap = { a: $cardA, b: $cardB, c: $cardC };
+  const chosenCard = cardMap[action];
   const correctCard = cardMap[q.correct];
 
   chosenCard.classList.add(isCorrect ? 'correct' : 'wrong');
@@ -309,23 +311,34 @@ function showResults() {
   showScreen('results');
 
   $overallProg.style.width = '100%';
-  $finalScore.textContent  = score;
-  $finalTotal.textContent  = QUESTIONS.length;
+  $finalScore.textContent = score;
+  $finalTotal.textContent = QUESTIONS.length;
 
   const pct = score / QUESTIONS.length;
-  if      (pct === 1)   { $resultEmoji.textContent = '🏆'; $resultMsg.textContent = 'Perfekt! Du bist ein Web-Profi!'; }
-  else if (pct >= 0.7)  { $resultEmoji.textContent = '🎉'; $resultMsg.textContent = 'Sehr gut! Du kennst dich aus.'; }
-  else if (pct >= 0.5)  { $resultEmoji.textContent = '👍'; $resultMsg.textContent = 'Guter Anfang – noch Luft nach oben!'; }
-  else                   { $resultEmoji.textContent = '📚'; $resultMsg.textContent = 'Üb noch ein bisschen – du schaffst das!'; }
+  if (pct === 1) {
+    $resultEmoji.textContent = '🏆';
+    $resultMsg.textContent = 'Perfekt! Du bist ein Web-Profi!';
+  } else if (pct >= 0.7) {
+    $resultEmoji.textContent = '🎉';
+    $resultMsg.textContent = 'Sehr gut! Du kennst dich aus.';
+  } else if (pct >= 0.5) {
+    $resultEmoji.textContent = '👍';
+    $resultMsg.textContent = 'Guter Anfang – noch Luft nach oben!';
+  } else {
+    $resultEmoji.textContent = '📚';
+    $resultMsg.textContent = 'Üb noch ein bisschen – du schaffst das!';
+  }
 
-  $resultList.innerHTML = answers.map((a, i) => {
-    const icon = a.isCorrect === null ? '⏭️' : a.isCorrect ? '✅' : '❌';
-    return `
+  $resultList.innerHTML = answers
+    .map((a, i) => {
+      const icon = a.isCorrect === null ? '⏭️' : a.isCorrect ? '✅' : '❌';
+      return `
       <div class="d-flex align-items-start gap-2 p-2 rounded" style="background:#161b22;border:1px solid #30363d;">
         <span>${icon}</span>
         <span class="text-secondary small flex-grow-1">${QUESTIONS[i].q}</span>
       </div>`;
-  }).join('');
+    })
+    .join('');
 }
 
 // ── Feedback-Flash ────────────────────────────────────────────────────────────
@@ -353,10 +366,11 @@ function buildHoldBars() {
   const quizGestures = ['forward', 'backward', 'confirm', 'stop'];
 
   // getGestures() nutzen, um Labels aus der Library zu holen – kein Hardcoding
-  const meta = lib.getGestures()
-    .filter(g => g.type === 'hold' && quizGestures.includes(g.name));
+  const meta = lib.getGestures().filter(g => g.type === 'hold' && quizGestures.includes(g.name));
 
-  $holdBars.innerHTML = meta.map(g => `
+  $holdBars.innerHTML = meta
+    .map(
+      g => `
     <div>
       <div class="d-flex justify-content-between mb-1">
         <span class="text-secondary" style="font-size:.75rem;">${g.label}</span>
@@ -366,7 +380,9 @@ function buildHoldBars() {
         <div id="pb-${g.name}" class="progress-bar" style="width:0%;"></div>
       </div>
     </div>
-  `).join('');
+  `
+    )
+    .join('');
 }
 
 function updateHoldBars() {
@@ -386,11 +402,9 @@ function updateHoldBars() {
     if (pct) pct.textContent = `${pctVal} %`;
 
     // Farbwechsel: blau → gelb ab 60 %, gelb → rot ab 85 %
-    bar.className = 'progress-bar ' + (
-      data.progress >= 0.85 ? 'bg-danger'  :
-      data.progress >= 0.60 ? 'bg-warning' :
-                               'bg-primary'
-    );
+    bar.className =
+      'progress-bar ' +
+      (data.progress >= 0.85 ? 'bg-danger' : data.progress >= 0.6 ? 'bg-warning' : 'bg-primary');
   }
 }
 
@@ -402,11 +416,11 @@ async function initCamera() {
   });
 
   pose.setOptions({
-    modelComplexity:        1,
-    smoothLandmarks:        true,
-    enableSegmentation:     false,
+    modelComplexity: 1,
+    smoothLandmarks: true,
+    enableSegmentation: false,
     minDetectionConfidence: 0.5,
-    minTrackingConfidence:  0.5,
+    minTrackingConfidence: 0.5,
   });
 
   pose.onResults(results => {
@@ -418,14 +432,14 @@ async function initCamera() {
     // Fortschrittbalken jedes Frame aktualisieren.
     updateHoldBars();
 
-    $camStatus.textContent = results.poseLandmarks
-      ? '✓ Pose erkannt'
-      : 'Keine Person erkannt';
+    $camStatus.textContent = results.poseLandmarks ? '✓ Pose erkannt' : 'Keine Person erkannt';
   });
 
   const camera = new Camera($camVideo, {
-    onFrame: async () => { await pose.send({ image: $camVideo }); },
-    width:  320,
+    onFrame: async () => {
+      await pose.send({ image: $camVideo });
+    },
+    width: 320,
     height: 240,
   });
 
@@ -438,9 +452,9 @@ async function initCamera() {
  */
 function drawLandmarks(results) {
   const ctx = $camCanvas.getContext('2d');
-  const w   = $camVideo.videoWidth  || 320;
-  const h   = $camVideo.videoHeight || 240;
-  $camCanvas.width  = w;
+  const w = $camVideo.videoWidth || 320;
+  const h = $camVideo.videoHeight || 240;
+  $camCanvas.width = w;
   $camCanvas.height = h;
   ctx.clearRect(0, 0, w, h);
 
@@ -459,7 +473,7 @@ function drawLandmarks(results) {
 
   // Verbindungslinien Schulter–Schulter und Schulter–Handgelenk
   ctx.strokeStyle = '#388bfd';
-  ctx.lineWidth   = 2;
+  ctx.lineWidth = 2;
   ctx.globalAlpha = 0.6;
 
   const lms = results.poseLandmarks;

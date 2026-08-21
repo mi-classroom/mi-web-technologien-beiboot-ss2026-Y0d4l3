@@ -10,7 +10,7 @@
 
 Beim Bau der Demo-Anwendung GestureQuiz wurden zwei Lücken in der öffentlichen API
 aufgedeckt, die den Aufwand für Anwendungscode unnötig erhöhten.
-Die Erkenntnisse stammen aus dem Versuch, die Library *ohne Blick in den Quellcode*
+Die Erkenntnisse stammen aus dem Versuch, die Library _ohne Blick in den Quellcode_
 zu nutzen und nur auf README und TypeScript-Kommentare zu vertrauen.
 
 ---
@@ -22,12 +22,12 @@ zu nutzen und nur auf README und TypeScript-Kommentare zu vertrauen.
 `useDefaults()` registriert alle 13 eingebauten Gesten auf einmal.
 GestureQuiz benötigt davon nur vier:
 
-| Geste       | Aktion             |
-|-------------|--------------------|
-| `forward`   | Antwort A wählen   |
-| `backward`  | Antwort B wählen   |
-| `confirm`   | Antwort C wählen   |
-| `stop`      | Frage überspringen |
+| Geste      | Aktion             |
+| ---------- | ------------------ |
+| `forward`  | Antwort A wählen   |
+| `backward` | Antwort B wählen   |
+| `confirm`  | Antwort C wählen   |
+| `stop`     | Frage überspringen |
 
 Die übrigen neun Gesten (volUp, volDown, scrollUp, scrollDown, zoomIn, zoomOut,
 swipeRight, pause, armsCrossed) sind im Spielkontext unerwünscht.
@@ -36,7 +36,7 @@ swipeRight, pause, armsCrossed) sind im Spielkontext unerwünscht.
 
 **Option A – Event-Handler-Filter**
 Im `gesture`-Event-Handler unerwünschte Namen ignorieren.
-*Problem:* Die Gesten werden intern weiter akkumuliert.
+_Problem:_ Die Gesten werden intern weiter akkumuliert.
 Das Conflict-System wertet Akkumulatoren aus: Läuft etwa `armsCrossed` ungehindert
 auf, kann es über die `conflicts`-Liste eine andere Geste sperren – auch wenn die
 App kein `armsCrossed`-Event verarbeitet.
@@ -44,11 +44,11 @@ Außerdem feuern unerwünschte Gesten auf `window`, was andere Listeners stört.
 
 **Option B – `reset()` als Unterdrückung missbrauchen**
 Nach jeder Detektion sofort `reset()` aufrufen, um den Zustand zu löschen.
-*Problem:* `reset()` leert auch die Smoothing- und History-Puffer; die nächste
+_Problem:_ `reset()` leert auch die Smoothing- und History-Puffer; die nächste
 gewünschte Geste braucht dann deutlich länger, bis sie feuert.
 
 **Option C – `useDefaults()` nicht verwenden, nur gewünschte Gesten manuell registrieren**
-*Problem:* Erfordert das Kopieren der Gesture-Definitionen aus `BUILTINS`.
+_Problem:_ Erfordert das Kopieren der Gesture-Definitionen aus `BUILTINS`.
 Das setzt voraus, die interne Struktur zu kennen – widerspricht dem Ziel einer
 opaken öffentlichen API.
 Zudem werden die konzipierten Konfliktkaskaden (z. B. stop → forward/backward)
@@ -59,11 +59,12 @@ nicht mehr automatisch aufgebaut.
 Zwei neue Methoden wurden zur Library hinzugefügt:
 
 ```js
-lib.disable(name)  // Geste aus Erkennungsschleife ausblenden
-lib.enable(name)   // Geste wieder aktivieren
+lib.disable(name); // Geste aus Erkennungsschleife ausblenden
+lib.enable(name); // Geste wieder aktivieren
 ```
 
 **Verhalten:**
+
 - Deaktivierte Gesten werden in `update()` übersprungen; ihr Akkumulator wird
   auf 0 gesetzt und nicht erhöht.
 - Sie bleiben registriert, sodass `useDefaults()` weiter genutzt werden kann.
@@ -80,8 +81,16 @@ lib.enable(name)   // Geste wieder aktivieren
 lib.useDefaults();
 
 // Nicht benötigte Gesten unterdrücken
-for (const name of ['volUp', 'volDown', 'scrollUp', 'scrollDown',
-                    'zoomIn', 'zoomOut', 'swipeRight', 'pause']) {
+for (const name of [
+  'volUp',
+  'volDown',
+  'scrollUp',
+  'scrollDown',
+  'zoomIn',
+  'zoomOut',
+  'swipeRight',
+  'pause',
+]) {
   lib.disable(name);
 }
 ```
@@ -110,8 +119,10 @@ Anwendungscode bisher:
 
 ```js
 // 1. Metadaten holen (holdFrames)
-const meta = lib.getGestures()
-  .reduce((m, g) => { m[g.name] = g; return m; }, {});
+const meta = lib.getGestures().reduce((m, g) => {
+  m[g.name] = g;
+  return m;
+}, {});
 
 // 2. Zähler holen
 const { holdCounters } = lib.getState();
@@ -167,14 +178,14 @@ dass eine Abstraktionsebene fehlt.
 
 ## Zusammenfassung der Änderungen
 
-| Änderung | Datei | Zeilen |
-|---|---|---|
-| `_disabled` Set im Konstruktor | `gesture-lib/gesture-library.js` | ~1 |
-| `disable(name)` Methode | `gesture-lib/gesture-library.js` | ~10 |
-| `enable(name)` Methode | `gesture-lib/gesture-library.js` | ~5 |
-| `getProgress()` Methode | `gesture-lib/gesture-library.js` | ~12 |
-| `getGestures()` um `disabled`-Feld erweitert | `gesture-lib/gesture-library.js` | ~3 |
-| `update()`: Disabled-Check in beiden Schleifen | `gesture-lib/gesture-library.js` | ~2 |
+| Änderung                                       | Datei                            | Zeilen |
+| ---------------------------------------------- | -------------------------------- | ------ |
+| `_disabled` Set im Konstruktor                 | `gesture-lib/gesture-library.js` | ~1     |
+| `disable(name)` Methode                        | `gesture-lib/gesture-library.js` | ~10    |
+| `enable(name)` Methode                         | `gesture-lib/gesture-library.js` | ~5     |
+| `getProgress()` Methode                        | `gesture-lib/gesture-library.js` | ~12    |
+| `getGestures()` um `disabled`-Feld erweitert   | `gesture-lib/gesture-library.js` | ~3     |
+| `update()`: Disabled-Check in beiden Schleifen | `gesture-lib/gesture-library.js` | ~2     |
 
 Alle Änderungen sind rückwärtskompatibel: bestehende Aufrufer erhalten neue
 Felder in Rückgabewerten, ihre Signatur ändert sich nicht.
