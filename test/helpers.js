@@ -65,6 +65,34 @@ function recordEvents(lib) {
   return names;
 }
 
+// ── Deterministic randomness & statistics (for signal-processing tests) ──────
+
+/** Seeded PRNG (mulberry32) → deterministic sequence in [0, 1). */
+function makeRng(seed) {
+  let a = seed >>> 0;
+  return function next() {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Approximately-standard-normal sample via Box–Muller, driven by an rng. */
+function gaussian(rng) {
+  const u = 1 - rng();
+  const v = rng();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+/** Population standard deviation of a numeric array. */
+function stddev(arr) {
+  const mean = arr.reduce((s, v) => s + v, 0) / arr.length;
+  const variance = arr.reduce((s, v) => s + (v - mean) ** 2, 0) / arr.length;
+  return Math.sqrt(variance);
+}
+
 module.exports = {
   LANDMARK_COUNT,
   baseFrame,
@@ -73,4 +101,7 @@ module.exports = {
   stopPose,
   feed,
   recordEvents,
+  makeRng,
+  gaussian,
+  stddev,
 };
