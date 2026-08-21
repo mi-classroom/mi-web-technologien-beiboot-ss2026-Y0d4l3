@@ -608,5 +608,12 @@
 
   // ── Export ──────────────────────────────────────────────────────────────────
 
+  // Browser: attach to the global object so <script> tags expose GestureLibrary.
   global.GestureLibrary = GestureLibrary;
+
+  // Node (tests, tooling): also expose via CommonJS. Guarded with typeof so the
+  // browser build — which has no module system — is completely unaffected.
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = GestureLibrary;
+  }
 })(typeof window !== 'undefined' ? window : globalThis);
