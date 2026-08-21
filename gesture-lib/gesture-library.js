@@ -90,7 +90,7 @@
       // the speed-adaptive 'oneEuro' filter. Moving average stays the default so
       // existing behavior is unchanged; opt into 'oneEuro' for lower jitter and lag.
       this.smoothing = smoothing;
-      this._oneEuroOpts = { minCutoff: 1.0, beta: 0.5, dCutoff: 1.0, ...oneEuro };
+      this._oneEuroOpts = { minCutoff: 1.0, beta: 1.0, dCutoff: 1.0, ...oneEuro };
       this._filters = null; // lazily built per-landmark filters (oneEuro only)
 
       // Cooldown is stored in ms. Prefer an explicit cooldownMs; otherwise accept the
