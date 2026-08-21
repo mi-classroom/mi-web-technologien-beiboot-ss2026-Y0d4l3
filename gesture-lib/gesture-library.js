@@ -26,6 +26,22 @@
     return arr.reduce((s, v) => s + v, 0) / arr.length;
   }
 
+  /**
+   * Resolve the OneEuroFilter class from either the Node module (tests/tooling)
+   * or the browser global set by one-euro.js. Returns undefined if unavailable,
+   * so the moving-average path keeps working even without the filter loaded.
+   */
+  function _resolveOneEuro() {
+    if (typeof require !== 'undefined') {
+      try {
+        return require('./one-euro.js').OneEuroFilter;
+      } catch {
+        /* not resolvable in this context – fall back to the global */
+      }
+    }
+    return global.OneEuroFilter;
+  }
+
   // ── GestureLibrary ──────────────────────────────────────────────────────────
 
   /**
@@ -59,6 +75,8 @@
       cooldownMs,
       cooldownFrames,
       maxFrameGapMs = 250,
+      smoothing = 'movingAverage',
+      oneEuro = {},
     } = {}) {
       super();
       this.bufferSize = bufferSize;
@@ -67,6 +85,13 @@
       this.nominalFps = nominalFps;
       this.maxFrameGapMs = maxFrameGapMs;
       this._nominalDt = 1000 / nominalFps; // ms per frame at the nominal rate
+
+      // Landmark smoothing strategy: the original 'movingAverage' (fixed window) or
+      // the speed-adaptive 'oneEuro' filter. Moving average stays the default so
+      // existing behavior is unchanged; opt into 'oneEuro' for lower jitter and lag.
+      this.smoothing = smoothing;
+      this._oneEuroOpts = { minCutoff: 1.0, beta: 0.5, dCutoff: 1.0, ...oneEuro };
+      this._filters = null; // lazily built per-landmark filters (oneEuro only)
 
       // Cooldown is stored in ms. Prefer an explicit cooldownMs; otherwise accept the
       // legacy cooldownFrames (converted); otherwise default to ~2 s.
@@ -161,14 +186,10 @@
       // 1. Determine the elapsed time since the previous frame.
       const dt = this._advanceClock(timestamp);
 
-      // 2. Advance the smoothing window.
-      this._smoothBuf.push(landmarks);
-      if (this._smoothBuf.length > this.bufferSize) this._smoothBuf.shift();
+      // 2. Smooth the raw landmarks with the configured strategy.
+      const smoothed = this._smooth(landmarks, dt);
 
-      // 3. Compute per-landmark running average.
-      const smoothed = this._computeSmoothed();
-
-      // 4. Advance the history window (updated every frame, even during cooldown,
+      // 3. Advance the history window (updated every frame, even during cooldown,
       //    so velocity windows do not have gaps after the lockout ends).
       this._historyBuf.push(smoothed);
       this._historyTimes.push(this._lastTs);
@@ -177,13 +198,13 @@
         this._historyTimes.shift();
       }
 
-      // 5. Draw down the cooldown and skip detection while it is active.
+      // 4. Draw down the cooldown and skip detection while it is active.
       if (this._cooldownRemaining > 0) {
         this._cooldownRemaining = Math.max(0, this._cooldownRemaining - dt);
         return;
       }
 
-      // 6. Evaluate hold gestures in registration order.
+      // 5. Evaluate hold gestures in registration order.
       //    A gesture whose `conflicts` list contains the name of any currently
       //    accumulating gesture has its own timer reset for this frame.
       //    Disabled gestures are skipped entirely (timer stays at 0).
@@ -209,8 +230,8 @@
         }
       }
 
-      // 6. Evaluate velocity gestures in registration order.
-      //    Disabled gestures are skipped.
+      // 6. Evaluate velocity gestures in registration order (frame-window based;
+      //    time-windowed velocity remains future work). Disabled gestures are skipped.
       for (const g of this._gestures) {
         if (g.type !== 'velocity') continue;
         if (this._disabled.has(g.name)) continue;
@@ -363,6 +384,16 @@
 
     // ── Private ───────────────────────────────────────────────────────────────
 
+    /** Smooth one raw frame with the configured strategy. */
+    _smooth(landmarks, dt) {
+      if (this.smoothing === 'oneEuro') return this._smoothOneEuro(landmarks, dt);
+
+      // Moving average: advance the window and return its per-landmark mean.
+      this._smoothBuf.push(landmarks);
+      if (this._smoothBuf.length > this.bufferSize) this._smoothBuf.shift();
+      return this._computeSmoothed();
+    }
+
     /** Compute per-landmark mean over the current smoothing window. */
     _computeSmoothed() {
       const n = this._smoothBuf.length;
@@ -381,6 +412,37 @@
         }
         return { x: x / n, y: y / n, z: z / n, visibility: vis / n };
       });
+    }
+
+    /**
+     * Smooth x/y/z per landmark with an independent 1€ filter. Visibility is passed
+     * through unfiltered so the occlusion gate reacts immediately when a landmark
+     * disappears (smoothing it would delay the visibility drop).
+     */
+    _smoothOneEuro(landmarks, dt) {
+      if (!this._filters) this._initFilters(landmarks.length);
+      return landmarks.map((lm, i) => {
+        const f = this._filters[i];
+        return {
+          x: f.x.filter(lm.x ?? 0, dt),
+          y: f.y.filter(lm.y ?? 0, dt),
+          z: f.z.filter(lm.z ?? 0, dt),
+          visibility: lm.visibility ?? 0,
+        };
+      });
+    }
+
+    /** Build one 1€ filter per axis per landmark. */
+    _initFilters(count) {
+      const OneEuro = _resolveOneEuro();
+      if (!OneEuro) {
+        throw new Error("GestureLibrary: smoothing 'oneEuro' requires one-euro.js to be loaded.");
+      }
+      this._filters = Array.from({ length: count }, () => ({
+        x: new OneEuro(this._oneEuroOpts),
+        y: new OneEuro(this._oneEuroOpts),
+        z: new OneEuro(this._oneEuroOpts),
+      }));
     }
 
     /** Fire a gesture: reset accumulators, start cooldown, dispatch events. */
@@ -415,6 +477,7 @@
       this._historyTimes = [];
       this._cooldownRemaining = 0;
       this._lastTs = null;
+      this._filters = null; // rebuilt on the next frame (oneEuro only)
       for (const name in this._holdElapsed) this._holdElapsed[name] = 0;
     }
 
