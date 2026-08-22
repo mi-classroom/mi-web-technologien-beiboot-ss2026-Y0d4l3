@@ -3,34 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const GestureLibrary = require('../gesture-lib/gesture-library.js');
-const { forwardPose } = require('./helpers.js');
-
-/**
- * Replay a static pose at a fixed frame rate using explicit timestamps, and report
- * when the gesture first fires — both in wall-clock milliseconds and in frame count.
- */
-function holdUntilFire(fps, { maxMs = 6000 } = {}) {
-  const lib = new GestureLibrary();
-  lib.useDefaults();
-
-  const dt = 1000 / fps;
-  const frame = forwardPose();
-  let ts = 0;
-  let calls = 0;
-  let fired = null;
-
-  lib.addEventListener('gesture', e => {
-    if (!fired) fired = { atMs: ts, calls, name: e.detail.name };
-  });
-
-  while (!fired && ts <= maxMs) {
-    calls++;
-    lib.update(frame, ts);
-    if (!fired) ts += dt;
-  }
-  return fired;
-}
+const { holdUntilFire } = require('../bench/timing.js');
 
 // 'forward' resolves to holdMs = 1000 (30 frames at the nominal 30 fps). With real
 // timestamps the hold must complete after ~1 s of wall-clock time regardless of the
