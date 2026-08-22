@@ -266,8 +266,33 @@ function advanceOrFinish() {
 // ── Gesten-Handler ────────────────────────────────────────────────────────────
 
 function onGesture({ detail }) {
-  const { name } = detail;
+  handleAction(detail.name);
+}
 
+// Tastatur-Fallback: das Spiel ist per Kamera/Gesten konzipiert, aber ohne
+// funktionierende Kamera oder für Personen, die die Gesten nicht ausführen
+// können, muss dieselbe Interaktion per Tastatur möglich sein.
+const KEY_ACTION = {
+  ArrowRight: 'forward',
+  ArrowLeft: 'backward',
+  ArrowUp: 'confirm',
+  Escape: 'stop',
+  Backspace: 'armsCrossed',
+};
+
+document.addEventListener('keydown', e => {
+  const name = KEY_ACTION[e.key];
+  if (name === undefined) return;
+  e.preventDefault();
+  handleAction(name);
+});
+
+/**
+ * Verarbeitet eine Geste (per Kamera oder Tastatur) anhand ihres Namens.
+ * Beide Eingabewege laufen durch denselben Code, damit sie exakt gleich
+ * behandelt werden.
+ */
+function handleAction(name) {
   // Auf dem Ergebnisbildschirm: Neustart-Gesten abfangen
   if (currentScreen === 'results') {
     if (name === 'stop' || name === 'armsCrossed') startGame();
@@ -288,7 +313,7 @@ function onGesture({ detail }) {
 
   if (action === 'skip') {
     answers.push({ isCorrect: null, chosen: null, correct: QUESTIONS[currentIdx].correct });
-    showFeedback('⏭️');
+    showFeedback('⏭️', 'Frage übersprungen');
     setTimeout(advanceOrFinish, 1100);
     return;
   }
@@ -309,7 +334,7 @@ function onGesture({ detail }) {
   }
 
   answers.push({ isCorrect, chosen: action, correct: q.correct });
-  showFeedback(isCorrect ? '✅' : '❌');
+  showFeedback(isCorrect ? '✅' : '❌', isCorrect ? 'Richtig' : 'Falsch');
   setTimeout(advanceOrFinish, 1500);
 }
 
@@ -351,8 +376,11 @@ function showResults() {
 
 // ── Feedback-Flash ────────────────────────────────────────────────────────────
 
-function showFeedback(emoji) {
+function showFeedback(emoji, a11yText) {
   $feedbackEl.textContent = emoji;
+  // aria-label statt des Emoji-Textinhalts, damit Screenreader den Zustand
+  // ("Richtig"/"Falsch"/…) statt einer Emoji-Beschreibung ansagen.
+  $feedbackEl.setAttribute('aria-label', a11yText);
   $feedbackEl.classList.add('show');
 }
 function hideFeedback() {
@@ -385,7 +413,8 @@ function buildHoldBars() {
         <span id="pb-pct-${g.name}" class="text-secondary" style="font-size:.75rem;">0 %</span>
       </div>
       <div class="progress hold-bar" style="background:#21262d;">
-        <div id="pb-${g.name}" class="progress-bar" style="width:0%;"></div>
+        <div id="pb-${g.name}" class="progress-bar" style="width:0%;"
+          role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="${g.label}"></div>
       </div>
     </div>
   `
@@ -407,6 +436,7 @@ function updateHoldBars() {
 
     const pctVal = Math.round(data.progress * 100);
     bar.style.width = `${pctVal}%`;
+    bar.setAttribute('aria-valuenow', pctVal);
     if (pct) pct.textContent = `${pctVal} %`;
 
     // Farbwechsel: blau → gelb ab 60 %, gelb → rot ab 85 %

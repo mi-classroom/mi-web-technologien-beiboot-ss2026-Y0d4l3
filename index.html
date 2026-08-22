@@ -2,6 +2,7 @@
 <html lang="de" data-bs-theme="dark">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Gestenerkennung – WebTech SS 2026</title>
     <link
       href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
@@ -27,7 +28,10 @@
       }
       canvas {
         transform: scaleX(-1);
-      } /* mirror for natural selfie view */
+        max-width: 100%;
+        height: auto;
+      } /* mirror for natural selfie view; scales down on narrow viewports
+           while the underlying 640×480 drawing buffer stays unchanged */
 
       .status-dot {
         width: 8px;
@@ -64,9 +68,11 @@
       </p>
     </header>
 
-    <div class="d-flex gap-3 align-items-start">
-      <!-- Canvas -->
-      <div class="flex-shrink-0">
+    <div class="d-flex gap-3 align-items-start flex-wrap">
+      <!-- Canvas: no flex-shrink-0 here — the sidebar already carries its own
+           min/max-width, and this wrapper must be free to shrink below its
+           640px content size on narrow viewports (see canvas max-width:100%). -->
+      <div style="max-width: 100%">
         <video
           id="input_video"
           width="640"
@@ -117,6 +123,8 @@
             <!-- Last triggered gesture -->
             <div
               id="lastGestureBox"
+              role="status"
+              aria-live="polite"
               class="rounded border p-2 text-center d-flex flex-column align-items-center justify-content-center mt-2"
               style="min-height: 60px"
             >
@@ -181,11 +189,12 @@ Warte auf Kamera…</pre>
             `
           <div class="mb-2">
             <div class="d-flex align-items-center gap-2 mb-1" style="font-size:11px;">
-              <span class="status-dot" id="dot-${name}"></span>
+              <span class="status-dot" id="dot-${name}" aria-hidden="true"></span>
               ${label}
             </div>
             <div class="progress" style="height: 8px;">
-              <div id="bar-${name}" class="progress-bar" style="width:0%; transition:width .05s linear;"></div>
+              <div id="bar-${name}" class="progress-bar" style="width:0%; transition:width .05s linear;"
+                role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="${label}"></div>
             </div>
           </div>
         `
@@ -231,10 +240,12 @@ Warte auf Kamera…</pre>
         const { cooldown, holdCounters } = lib.getState();
 
         if (cooldown > 0) {
-          const pct = (100 * cooldown) / lib.cooldownFrames + '%';
+          const pctVal = Math.round((100 * cooldown) / lib.cooldownFrames);
           holdGestures.forEach(({ name }) => {
-            document.getElementById(`bar-${name}`).style.width = pct;
-            document.getElementById(`bar-${name}`).className = 'progress-bar bg-warning';
+            const bar = document.getElementById(`bar-${name}`);
+            bar.style.width = pctVal + '%';
+            bar.className = 'progress-bar bg-warning';
+            bar.setAttribute('aria-valuenow', pctVal);
             document.getElementById(`dot-${name}`).style.background = '#ffc107';
           });
           return;
@@ -245,12 +256,15 @@ Warte auf Kamera…</pre>
           const dot = document.getElementById(`dot-${name}`);
           const cnt = holdCounters[name] || 0;
           if (cnt > 0) {
-            bar.style.width = (100 * cnt) / holdFrames + '%';
+            const pctVal = Math.round((100 * cnt) / holdFrames);
+            bar.style.width = pctVal + '%';
             bar.className = 'progress-bar bg-success';
+            bar.setAttribute('aria-valuenow', pctVal);
             dot.style.background = '#198754';
           } else {
             bar.style.width = '0%';
             bar.className = 'progress-bar';
+            bar.setAttribute('aria-valuenow', 0);
             dot.style.background = '#555';
           }
         });
