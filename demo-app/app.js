@@ -161,6 +161,8 @@ const $finalTotal = document.getElementById('final-total');
 const $resultMsg = document.getElementById('result-msg');
 const $resultList = document.getElementById('result-list');
 
+const $smoothingSelect = document.getElementById('smoothing-select');
+
 document.getElementById('btn-start').addEventListener('click', startGame);
 document.getElementById('btn-restart').addEventListener('click', startGame);
 
@@ -182,10 +184,12 @@ async function startGame() {
 
   if (!lib) {
     // Erste Runde: Library instanziieren und konfigurieren.
+    // smoothing/timestamp: siehe gesture-lib/README.md, Abschnitt "Robustheit".
     lib = new GestureLibrary({
       bufferSize: 5,
-      cooldownFrames: 50, // ~1.6 s bei 30 fps
+      cooldownMs: 1600,
       minVisibility: 0.55,
+      smoothing: $smoothingSelect.value,
     });
 
     lib.useDefaults();
@@ -203,6 +207,10 @@ async function startGame() {
     // Halte-Fortschrittbalken aus der API ableiten – nicht hart kodieren.
     // getGestures() liefert Metadaten aller registrierten Gesten.
     buildHoldBars();
+
+    // Die Glättungsstrategie ist an diese Library-Instanz gebunden; ein
+    // Wechsel ist nur vor dem ersten Start sinnvoll.
+    $smoothingSelect.disabled = true;
   } else {
     // Neustart: Zustand der Library zurücksetzen (Puffer + Zähler).
     lib.reset();
@@ -427,7 +435,9 @@ async function initCamera() {
     drawLandmarks(results);
 
     // Frames an die Library übergeben (einziger Punkt der Interaktion pro Frame).
-    lib.update(results.poseLandmarks || null);
+    // Real timestamp so hold/cooldown timing is frame-rate independent (see
+    // gesture-lib README, "Frame-Rate-Unabhängigkeit").
+    lib.update(results.poseLandmarks || null, performance.now());
 
     // Fortschrittbalken jedes Frame aktualisieren.
     updateHoldBars();

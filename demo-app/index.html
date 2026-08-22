@@ -194,6 +194,31 @@
             </div>
           </div>
 
+          <!-- Smoothing-Auswahl: siehe gesture-lib/README.md, Abschnitt "Robustheit" -->
+          <div class="card mb-4" style="background: #161b22; border-color: #30363d">
+            <div class="card-body">
+              <label
+                for="smoothing-select"
+                class="text-secondary text-uppercase mb-2 d-block"
+                style="font-size: 0.75rem; letter-spacing: 0.08em"
+              >
+                Landmark-Glättung
+              </label>
+              <select
+                id="smoothing-select"
+                class="form-select form-select-sm"
+                style="max-width: 320px"
+              >
+                <option value="oneEuro" selected>1€-Filter (adaptiv, empfohlen)</option>
+                <option value="movingAverage">Gleitender Mittelwert (Original)</option>
+              </select>
+              <p class="text-secondary small mt-2 mb-0">
+                Nur vor dem Start wählbar. Details &amp; Messwerte:
+                <code>npm run bench</code>.
+              </p>
+            </div>
+          </div>
+
           <div class="text-center">
             <button id="btn-start" class="btn btn-primary btn-lg px-5">
               Kamera starten &amp; spielen
@@ -307,6 +332,7 @@
     ></script>
 
     <!-- GestureLibrary – treated as external dependency, referenced by path -->
+    <script src="../gesture-lib/one-euro.js"></script>
     <script src="../gesture-lib/gesture-library.js"></script>
 
     <!-- Application logic -->
