@@ -71,8 +71,9 @@ und [`test/benchmark.test.js`](test/benchmark.test.js)):
   mehr als der Mittelwert — deshalb bleibt `movingAverage` der Default und
   `oneEuro` ist opt-in.
 
-Bewusst **nicht** Teil dieser Vertiefung (Timebox, siehe DR-007): Distanz-
-Normierung und Ellenbogen-Check. Beide bleiben als Future Work dokumentiert.
+Bewusst **nicht** Teil dieser Vertiefung (Timebox, siehe DR-007):
+Ellenbogen-Check, Nah/Fern-Unterscheidung und Kamerawinkel-Robustheit. Alle
+drei bleiben als Future Work dokumentiert.
 
 ## Voraussetzungen
 
