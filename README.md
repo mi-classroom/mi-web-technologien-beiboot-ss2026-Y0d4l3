@@ -58,9 +58,10 @@ Test-Suite nutzt:
 npm run bench
 ```
 
-**Kurzfassung der Messwerte** (Details: `npm run bench`, Tests in
-[`test/frame-rate.test.js`](test/frame-rate.test.js) und
-[`test/benchmark.test.js`](test/benchmark.test.js)):
+**Kurzfassung der Messwerte** (vollständiger, persistierter Report:
+[docs/benchmark-results.md](docs/benchmark-results.md); reproduzierbar mit
+`npm run bench`; Tests in [`test/frame-rate.test.js`](test/frame-rate.test.js)
+und [`test/benchmark.test.js`](test/benchmark.test.js)):
 
 - Hold-Trigger jetzt bei 30/15/10 fps konstant bei ~1000 ms Wall-Clock-Zeit
   (vorher: ~1000 ms bei 30 fps, aber ~2000 ms bei 15 fps).
@@ -147,6 +148,7 @@ docs/observations-raw-data.md   Frühe Beobachtungen zu MediaPipe-Rohdaten (Issu
 
 - [gesture-lib/README.md](gesture-lib/README.md) — vollständige API-Referenz der Library
 - [docs/architecture.md](docs/architecture.md) — Architektur-Diagramme (Gesamtaufbau, `update()`-Pipeline)
+- [docs/benchmark-results.md](docs/benchmark-results.md) — persistierter Vorher/Nachher-Messreport
 - [docs/gestures.md](docs/gestures.md) — Gestenvokabular und Stabilitätsanalyse
 - [docs/decisions/](docs/decisions/) — alle Decision Records
 - [docs/observations-raw-data.md](docs/observations-raw-data.md) — frühe Rohdaten-Beobachtungen
