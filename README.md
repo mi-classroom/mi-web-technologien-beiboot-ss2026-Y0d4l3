@@ -122,6 +122,13 @@ Nutzers. Das Kamerabild wird von MediaPipe direkt im Browser in Landmark-
 Koordinaten umgewandelt; weder Bilder noch Landmark-Daten verlassen das Gerät
 oder werden an einen Server übertragen — die Demos haben kein Backend.
 
+## Lizenz
+
+MIT, siehe [LICENSE](LICENSE). Genutzte Drittanbieter-Ressourcen (MediaPipe,
+Bootstrap, Dev-Tooling) und deren Lizenzen stehen in
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md). Hinweise zum
+Arbeitsprozess: [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Projektstruktur
 
 ```
