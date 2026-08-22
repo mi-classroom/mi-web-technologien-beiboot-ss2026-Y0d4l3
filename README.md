@@ -139,6 +139,7 @@ docs/observations-raw-data.md   Frühe Beobachtungen zu MediaPipe-Rohdaten (Issu
 ## Weiterführende Dokumentation
 
 - [gesture-lib/README.md](gesture-lib/README.md) — vollständige API-Referenz der Library
+- [docs/architecture.md](docs/architecture.md) — Architektur-Diagramme (Gesamtaufbau, `update()`-Pipeline)
 - [docs/gestures.md](docs/gestures.md) — Gestenvokabular und Stabilitätsanalyse
 - [docs/decisions/](docs/decisions/) — alle Decision Records
 - [docs/observations-raw-data.md](docs/observations-raw-data.md) — frühe Rohdaten-Beobachtungen
