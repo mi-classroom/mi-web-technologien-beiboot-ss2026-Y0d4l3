@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Lint & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm test
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Publish only the static site: the two demo entry points and the library
+      # they load. Dev tooling (tests, benchmark harness, configs) stays out of
+      # the deployed artifact.
+      - name: Assemble site
+        run: |
+          mkdir -p _site
+          cp index.html _site/
+          cp -r gesture-lib _site/
+          cp -r demo-app _site/
+          cp -r docs _site/
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: '_site'
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

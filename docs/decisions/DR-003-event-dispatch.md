@@ -8,7 +8,7 @@
 ## Kontext
 
 Sobald eine Geste erkannt wird, müssen interessierte Komponenten benachrichtigt
-werden.  Die Library soll von Dritten nutzbar sein, ohne dass sie wissen müssen,
+werden. Die Library soll von Dritten nutzbar sein, ohne dass sie wissen müssen,
 wie die interne Instanz heißt oder wo sie im globalen Scope liegt.
 
 ---
@@ -27,6 +27,7 @@ Jedes Gesten-Ereignis wird **zweifach** als `CustomEvent('gesture')` dispatcht:
    ```
 
 Beide Events tragen dasselbe `detail`-Objekt:
+
 ```js
 { name: string, label: string, timestamp: number }
 ```
@@ -35,13 +36,13 @@ Beide Events tragen dasselbe `detail`-Objekt:
 
 ## Betrachtete Alternativen
 
-| Alternative | Begründung für Ablehnung |
-|---|---|
-| Nur Callback-basiert (`lib.onGesture = fn`) | Erlaubt nur einen Listener; schlechte Komposierbarkeit |
-| Nur Callback-Array (`lib.on('gesture', fn)`) | Eigene Implementierung nötig; `EventTarget` bietet dieselbe Funktionalität bereits |
-| Nur `document`-Event | `document.dispatchEvent` ohne `bubbles: true` wird von `window`-Listenern nicht empfangen; muss explizit dokumentiert werden |
-| Nur Instanz-Event | Nutzer müssen eine Referenz auf `lib` halten; erschwert lose Kopplung zwischen Komponenten |
-| Pub/Sub-Bibliothek (EventEmitter, RxJS) | Externe Abhängigkeit; für das Volumen eines Uni-Projekts nicht gerechtfertigt |
+| Alternative                                  | Begründung für Ablehnung                                                                                                     |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Nur Callback-basiert (`lib.onGesture = fn`)  | Erlaubt nur einen Listener; schlechte Komposierbarkeit                                                                       |
+| Nur Callback-Array (`lib.on('gesture', fn)`) | Eigene Implementierung nötig; `EventTarget` bietet dieselbe Funktionalität bereits                                           |
+| Nur `document`-Event                         | `document.dispatchEvent` ohne `bubbles: true` wird von `window`-Listenern nicht empfangen; muss explizit dokumentiert werden |
+| Nur Instanz-Event                            | Nutzer müssen eine Referenz auf `lib` halten; erschwert lose Kopplung zwischen Komponenten                                   |
+| Pub/Sub-Bibliothek (EventEmitter, RxJS)      | Externe Abhängigkeit; für das Volumen eines Uni-Projekts nicht gerechtfertigt                                                |
 
 ---
 
@@ -50,6 +51,7 @@ Beide Events tragen dasselbe `detail`-Objekt:
 Die **Doppel-Strategie** bedient zwei Nutzungsszenarien ohne Kompromiss:
 
 **Szenario A – enger Scope** (Demo-App hat direkte `lib`-Referenz):
+
 ```js
 lib.addEventListener('gesture', ({ detail }) => {
   showBadge(detail.name);
@@ -58,6 +60,7 @@ lib.addEventListener('gesture', ({ detail }) => {
 
 **Szenario B – loser Scope** (Folienpräsentation, separates Modul ohne
 `lib`-Referenz):
+
 ```js
 window.addEventListener('gesture', ({ detail }) => {
   if (detail.name === 'forward') nextSlide();
@@ -68,7 +71,7 @@ Das `CustomEvent`-Format ist ein W3C-Standard und benötigt keine zusätzlichen
 Bibliotheken oder Transpiler.
 
 Das `detail`-Objekt enthält bewusst nur unveränderliche, serialisierbare Werte
-(`name`, `label`, `timestamp`).  Kein Verweis auf interne Library-Objekte wird
+(`name`, `label`, `timestamp`). Kein Verweis auf interne Library-Objekte wird
 nach außen gegeben, was die Kapselung der Internals sicherstellt.
 
 ---
@@ -81,6 +84,6 @@ nach außen gegeben, was die Kapselung der Internals sicherstellt.
 - **Negativ**: `window`-Events sind global – bei mehreren `GestureLibrary`-
   Instanzen auf derselben Seite feuern alle Events auf denselben `window`-Bus.
   Listener können anhand von `detail.name` filtern, aber die Herkunfts-Instanz
-  ist nicht direkt erkennbar.  Für diesen Prototypen ist das akzeptabel;
+  ist nicht direkt erkennbar. Für diesen Prototypen ist das akzeptabel;
   bei mehreren parallelen Instanzen wäre ein Namespacing (z. B.
   `gesture:myLib`) sinnvoll.

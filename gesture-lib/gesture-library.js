@@ -21,14 +21,25 @@
 
   // ── Module-private helpers ──────────────────────────────────────────────────
 
-  /** True when all listed landmark indices exceed the visibility threshold. */
-  function _vis(lm, minVis, ...indices) {
-    return indices.every(i => lm[i] && lm[i].visibility > minVis);
-  }
-
   /** Arithmetic mean of a numeric array. */
   function _avg(arr) {
     return arr.reduce((s, v) => s + v, 0) / arr.length;
+  }
+
+  /**
+   * Resolve the OneEuroFilter class from either the Node module (tests/tooling)
+   * or the browser global set by one-euro.js. Returns undefined if unavailable,
+   * so the moving-average path keeps working even without the filter loaded.
+   */
+  function _resolveOneEuro() {
+    if (typeof require !== 'undefined') {
+      try {
+        return require('./one-euro.js').OneEuroFilter;
+      } catch {
+        /* not resolvable in this context – fall back to the global */
+      }
+    }
+    return global.OneEuroFilter;
   }
 
   // ── GestureLibrary ──────────────────────────────────────────────────────────
@@ -38,32 +49,69 @@
    * addEventListener / removeEventListener / dispatchEvent API.
    */
   class GestureLibrary extends EventTarget {
-
     /**
      * @param {object} [options]
-     * @param {number} [options.bufferSize=5]       Smoothing window (frames).
-     * @param {number} [options.cooldownFrames=60]  Lockout after each gesture.
-     * @param {number} [options.minVisibility=0.60] Min landmark visibility score.
-     * @param {number} [options.historySize=30]     Max frames kept for velocity checks.
+     * @param {number} [options.bufferSize=5]        Smoothing window (frames).
+     * @param {number} [options.minVisibility=0.60]  Min landmark visibility score.
+     * @param {number} [options.historySize=30]      Max frames kept for velocity checks.
+     * @param {number} [options.nominalFps=30]       Frame rate assumed when update() is
+     *                                               called without a timestamp, and the
+     *                                               basis for the frames↔ms conversion.
+     * @param {number} [options.cooldownMs]          Lockout after each gesture, in ms.
+     * @param {number} [options.cooldownFrames]      Legacy: lockout in frames. Converted
+     *                                               to ms via nominalFps. Ignored if
+     *                                               cooldownMs is given. Defaults to ~2 s.
+     * @param {number} [options.maxFrameGapMs=250]   Upper bound applied to the measured
+     *                                               inter-frame delta, so a stalled feed
+     *                                               (e.g. a backgrounded tab) cannot make
+     *                                               a hold complete or a cooldown expire
+     *                                               in a single jump.
      */
     constructor({
-      bufferSize     = 5,
-      cooldownFrames = 60,
-      minVisibility  = 0.60,
-      historySize    = 30,
+      bufferSize = 5,
+      minVisibility = 0.6,
+      historySize = 30,
+      nominalFps = 30,
+      cooldownMs,
+      cooldownFrames,
+      maxFrameGapMs = 250,
+      smoothing = 'movingAverage',
+      oneEuro = {},
     } = {}) {
       super();
-      this.bufferSize     = bufferSize;
-      this.cooldownFrames = cooldownFrames;
-      this.minVisibility  = minVisibility;
-      this.historySize    = historySize;
+      this.bufferSize = bufferSize;
+      this.minVisibility = minVisibility;
+      this.historySize = historySize;
+      this.nominalFps = nominalFps;
+      this.maxFrameGapMs = maxFrameGapMs;
+      this._nominalDt = 1000 / nominalFps; // ms per frame at the nominal rate
 
-      this._gestures     = [];        // ordered list of gesture definitions
-      this._smoothBuf    = [];        // raw landmark frames, up to bufferSize
-      this._historyBuf   = [];        // smoothed landmark frames, up to historySize
-      this._holdCounters = {};        // name → consecutive-frame count
-      this._cooldown     = 0;
-      this._disabled     = new Set(); // names of currently-disabled gestures
+      // Landmark smoothing strategy: the original 'movingAverage' (fixed window) or
+      // the speed-adaptive 'oneEuro' filter. Moving average stays the default so
+      // existing behavior is unchanged; opt into 'oneEuro' for lower jitter and lag.
+      this.smoothing = smoothing;
+      this._oneEuroOpts = { minCutoff: 1.0, beta: 1.0, dCutoff: 1.0, ...oneEuro };
+      this._filters = null; // lazily built per-landmark filters (oneEuro only)
+
+      // Cooldown is stored in ms. Prefer an explicit cooldownMs; otherwise accept the
+      // legacy cooldownFrames (converted); otherwise default to ~2 s.
+      this.cooldownMs =
+        cooldownMs != null
+          ? cooldownMs
+          : cooldownFrames != null
+            ? cooldownFrames * this._nominalDt
+            : 2000;
+      // Derived frame-equivalent, kept for UIs that still read it (e.g. progress bars).
+      this.cooldownFrames = Math.round(this.cooldownMs / this._nominalDt);
+
+      this._gestures = []; // ordered list of gesture definitions
+      this._smoothBuf = []; // raw landmark frames, up to bufferSize
+      this._historyBuf = []; // smoothed landmark frames, up to historySize
+      this._historyTimes = []; // timestamps parallel to _historyBuf (ms)
+      this._holdElapsed = {}; // name → ms the current hold streak has lasted
+      this._cooldownRemaining = 0; // ms left in the post-gesture lockout
+      this._lastTs = null; // timestamp of the previous update() (ms)
+      this._disabled = new Set(); // names of currently-disabled gestures
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -75,7 +123,10 @@
      *   name       {string}    Unique identifier used in events and state.
      *   type       {string}    'hold' or 'velocity'.
      *   label      {string}    Human-readable name shown in UI / events.
-     *   holdFrames {number}    (hold only) Consecutive frames required to fire.
+     *   holdMs     {number}    (hold only) Duration the condition must hold to fire, in
+     *                          milliseconds. Preferred over holdFrames.
+     *   holdFrames {number}    (hold only) Legacy alternative to holdMs: a frame count,
+     *                          interpreted as holdFrames/nominalFps seconds.
      *   conflicts  {string[]}  (hold only) Names of gestures whose accumulation
      *                          blocks this one from accumulating.  Gestures are
      *                          evaluated in registration order, so a higher-
@@ -100,9 +151,17 @@
       if (this._gestures.some(g => g.name === def.name)) {
         throw new Error(`GestureLibrary.register(): gesture "${def.name}" already registered.`);
       }
-      this._gestures.push({ conflicts: [], ...def });
+      // Resolve the hold duration to ms once, at registration time.
+      const holdMs =
+        def.holdMs != null
+          ? def.holdMs
+          : def.holdFrames != null
+            ? def.holdFrames * this._nominalDt
+            : undefined;
+
+      this._gestures.push({ conflicts: [], ...def, holdMs });
       if (def.type === 'hold') {
-        this._holdCounters[def.name] = 0;
+        this._holdElapsed[def.name] = 0;
       }
       return this;
     }
@@ -113,58 +172,66 @@
      * Pass null (or call with no argument) when no pose is detected.
      *
      * @param {Array|null} landmarks  MediaPipe poseLandmarks array.
+     * @param {number} [timestamp]    Frame time in ms (e.g. performance.now()). When
+     *                                omitted, a nominal-fps clock is used, so existing
+     *                                callers keep working; pass real timestamps to make
+     *                                hold and cooldown timing independent of frame rate.
      */
-    update(landmarks) {
+    update(landmarks, timestamp) {
       if (!landmarks || landmarks.length === 0) {
         this._resetState();
         return;
       }
 
-      // 1. Advance the smoothing window.
-      this._smoothBuf.push(landmarks);
-      if (this._smoothBuf.length > this.bufferSize) this._smoothBuf.shift();
+      // 1. Determine the elapsed time since the previous frame.
+      const dt = this._advanceClock(timestamp);
 
-      // 2. Compute per-landmark running average.
-      const smoothed = this._computeSmoothed();
+      // 2. Smooth the raw landmarks with the configured strategy.
+      const smoothed = this._smooth(landmarks, dt);
 
       // 3. Advance the history window (updated every frame, even during cooldown,
       //    so velocity windows do not have gaps after the lockout ends).
       this._historyBuf.push(smoothed);
-      if (this._historyBuf.length > this.historySize) this._historyBuf.shift();
+      this._historyTimes.push(this._lastTs);
+      if (this._historyBuf.length > this.historySize) {
+        this._historyBuf.shift();
+        this._historyTimes.shift();
+      }
 
-      // 4. Tick the cooldown counter and skip detection while active.
-      if (this._cooldown > 0) {
-        this._cooldown--;
+      // 4. Draw down the cooldown and skip detection while it is active.
+      if (this._cooldownRemaining > 0) {
+        this._cooldownRemaining = Math.max(0, this._cooldownRemaining - dt);
         return;
       }
 
       // 5. Evaluate hold gestures in registration order.
       //    A gesture whose `conflicts` list contains the name of any currently
-      //    accumulating gesture has its own counter reset for this frame.
-      //    Disabled gestures are skipped entirely (counter stays at 0).
+      //    accumulating gesture has its own timer reset for this frame.
+      //    Disabled gestures are skipped entirely (timer stays at 0).
       for (const g of this._gestures) {
         if (g.type !== 'hold') continue;
         if (this._disabled.has(g.name)) continue;
 
-        const blocked = g.conflicts.some(n => (this._holdCounters[n] || 0) > 0);
+        const blocked = g.conflicts.some(n => (this._holdElapsed[n] || 0) > 0);
         if (blocked) {
-          this._holdCounters[g.name] = 0;
+          this._holdElapsed[g.name] = 0;
           continue;
         }
 
         if (g.check(smoothed, this._historyBuf)) {
-          this._holdCounters[g.name]++;
-          if (this._holdCounters[g.name] >= g.holdFrames) {
+          this._holdElapsed[g.name] += dt;
+          // Small epsilon so floating-point rounding never delays a hold by one frame.
+          if (this._holdElapsed[g.name] >= g.holdMs - 1e-9) {
             this._trigger(g);
             return;
           }
         } else {
-          this._holdCounters[g.name] = 0;
+          this._holdElapsed[g.name] = 0;
         }
       }
 
-      // 6. Evaluate velocity gestures in registration order.
-      //    Disabled gestures are skipped.
+      // 6. Evaluate velocity gestures in registration order (frame-window based;
+      //    time-windowed velocity remains future work). Disabled gestures are skipped.
       for (const g of this._gestures) {
         if (g.type !== 'velocity') continue;
         if (this._disabled.has(g.name)) continue;
@@ -177,34 +244,48 @@
 
     /**
      * Returns a read-only snapshot of the current library state.
+     * `cooldown` and `holdCounters` are expressed in nominal frames (derived from the
+     * internal ms timers) for backward compatibility; `cooldownMs` gives the raw value.
      *
-     * @returns {{ cooldown: number, holdCounters: object }}
+     * @returns {{ cooldown: number, cooldownMs: number, holdCounters: object }}
      */
     getState() {
+      const holdCounters = {};
+      for (const name in this._holdElapsed) {
+        holdCounters[name] = Math.round(this._holdElapsed[name] / this._nominalDt);
+      }
       return {
-        cooldown:     this._cooldown,
-        holdCounters: { ...this._holdCounters },
+        cooldown: Math.round(this._cooldownRemaining / this._nominalDt),
+        cooldownMs: this._cooldownRemaining,
+        holdCounters,
       };
     }
 
     /**
      * Returns a summary of every registered gesture (safe copy, no check functions).
      * Useful for dynamically building a UI without hardcoding gesture names.
+     * For hold gestures, both the ms duration and a nominal-frame equivalent are given.
      *
-     * @returns {Array<{ name, type, label, holdFrames? }>}
+     * @returns {Array<{ name, type, label, holdMs?, holdFrames?, disabled }>}
      */
     getGestures() {
-      return this._gestures.map(({ name, type, label, holdFrames }) => {
+      return this._gestures.map(({ name, type, label, holdMs }) => {
         const disabled = this._disabled.has(name);
-        return holdFrames !== undefined
-          ? { name, type, label, holdFrames, disabled }
-          : { name, type, label, disabled };
+        if (holdMs === undefined) return { name, type, label, disabled };
+        return {
+          name,
+          type,
+          label,
+          holdMs,
+          holdFrames: Math.round(holdMs / this._nominalDt),
+          disabled,
+        };
       });
     }
 
     /** @returns {boolean} True while the post-gesture lockout is active. */
     isOnCooldown() {
-      return this._cooldown > 0;
+      return this._cooldownRemaining > 0;
     }
 
     /**
@@ -231,7 +312,7 @@
         throw new Error(`GestureLibrary.disable(): gesture "${name}" is not registered.`);
       }
       this._disabled.add(name);
-      if (name in this._holdCounters) this._holdCounters[name] = 0;
+      if (name in this._holdElapsed) this._holdElapsed[name] = 0;
       return this;
     }
 
@@ -255,17 +336,18 @@
      * getGestures() to compute percentages.
      *
      * @returns {Object.<string, { count: number, holdFrames: number, progress: number }>}
-     *   Keys are gesture names.  `progress` is a value in [0, 1].
+     *   Keys are gesture names.  `count`/`holdFrames` are nominal-frame equivalents of
+     *   the internal ms timers.  `progress` is a value in [0, 1].
      */
     getProgress() {
       const out = {};
       for (const g of this._gestures) {
         if (g.type !== 'hold') continue;
-        const count = this._holdCounters[g.name] || 0;
+        const elapsed = this._holdElapsed[g.name] || 0;
         out[g.name] = {
-          count,
-          holdFrames: g.holdFrames,
-          progress:   g.holdFrames > 0 ? Math.min(count / g.holdFrames, 1) : 0,
+          count: Math.round(elapsed / this._nominalDt),
+          holdFrames: Math.round(g.holdMs / this._nominalDt),
+          progress: g.holdMs > 0 ? Math.min(elapsed / g.holdMs, 1) : 0,
         };
       }
       return out;
@@ -280,10 +362,18 @@
      */
     useDefaults() {
       const order = [
-        'stop', 'armsCrossed',
-        'confirm', 'volUp', 'volDown',
-        'forward', 'backward', 'pause',
-        'scrollUp', 'scrollDown', 'zoomIn', 'zoomOut',
+        'stop',
+        'armsCrossed',
+        'confirm',
+        'volUp',
+        'volDown',
+        'forward',
+        'backward',
+        'pause',
+        'scrollUp',
+        'scrollDown',
+        'zoomIn',
+        'zoomOut',
         'swipeRight',
       ];
       for (const name of order) {
@@ -294,34 +384,79 @@
 
     // ── Private ───────────────────────────────────────────────────────────────
 
+    /** Smooth one raw frame with the configured strategy. */
+    _smooth(landmarks, dt) {
+      if (this.smoothing === 'oneEuro') return this._smoothOneEuro(landmarks, dt);
+
+      // Moving average: advance the window and return its per-landmark mean.
+      this._smoothBuf.push(landmarks);
+      if (this._smoothBuf.length > this.bufferSize) this._smoothBuf.shift();
+      return this._computeSmoothed();
+    }
+
     /** Compute per-landmark mean over the current smoothing window. */
     _computeSmoothed() {
-      const n  = this._smoothBuf.length;
+      const n = this._smoothBuf.length;
       const lc = this._smoothBuf[0].length;
       return Array.from({ length: lc }, (_, i) => {
-        let x = 0, y = 0, z = 0, vis = 0;
+        let x = 0,
+          y = 0,
+          z = 0,
+          vis = 0;
         for (const frame of this._smoothBuf) {
           const lm = frame[i] || {};
-          x   += lm.x          ?? 0;
-          y   += lm.y          ?? 0;
-          z   += lm.z          ?? 0;
+          x += lm.x ?? 0;
+          y += lm.y ?? 0;
+          z += lm.z ?? 0;
           vis += lm.visibility ?? 0;
         }
         return { x: x / n, y: y / n, z: z / n, visibility: vis / n };
       });
     }
 
+    /**
+     * Smooth x/y/z per landmark with an independent 1€ filter. Visibility is passed
+     * through unfiltered so the occlusion gate reacts immediately when a landmark
+     * disappears (smoothing it would delay the visibility drop).
+     */
+    _smoothOneEuro(landmarks, dt) {
+      if (!this._filters) this._initFilters(landmarks.length);
+      return landmarks.map((lm, i) => {
+        const f = this._filters[i];
+        return {
+          x: f.x.filter(lm.x ?? 0, dt),
+          y: f.y.filter(lm.y ?? 0, dt),
+          z: f.z.filter(lm.z ?? 0, dt),
+          visibility: lm.visibility ?? 0,
+        };
+      });
+    }
+
+    /** Build one 1€ filter per axis per landmark. */
+    _initFilters(count) {
+      const OneEuro = _resolveOneEuro();
+      if (!OneEuro) {
+        throw new Error("GestureLibrary: smoothing 'oneEuro' requires one-euro.js to be loaded.");
+      }
+      this._filters = Array.from({ length: count }, () => ({
+        x: new OneEuro(this._oneEuroOpts),
+        y: new OneEuro(this._oneEuroOpts),
+        z: new OneEuro(this._oneEuroOpts),
+      }));
+    }
+
     /** Fire a gesture: reset accumulators, start cooldown, dispatch events. */
     _trigger(gesture) {
-      // Reset all hold counters and clear the velocity history so a fresh
+      // Reset all hold timers and clear the velocity history so a fresh
       // window is required before the next velocity gesture can fire.
-      for (const name in this._holdCounters) this._holdCounters[name] = 0;
+      for (const name in this._holdElapsed) this._holdElapsed[name] = 0;
       this._historyBuf = [];
-      this._cooldown   = this.cooldownFrames;
+      this._historyTimes = [];
+      this._cooldownRemaining = this.cooldownMs;
 
       const detail = {
-        name:      gesture.name,
-        label:     gesture.label,
+        name: gesture.name,
+        label: gesture.label,
         timestamp: Date.now(),
       };
 
@@ -337,10 +472,36 @@
 
     /** Hard reset – called when no pose is detected or reset() is invoked. */
     _resetState() {
-      this._smoothBuf  = [];
+      this._smoothBuf = [];
       this._historyBuf = [];
-      this._cooldown   = 0;
-      for (const name in this._holdCounters) this._holdCounters[name] = 0;
+      this._historyTimes = [];
+      this._cooldownRemaining = 0;
+      this._lastTs = null;
+      this._filters = null; // rebuilt on the next frame (oneEuro only)
+      for (const name in this._holdElapsed) this._holdElapsed[name] = 0;
+    }
+
+    /**
+     * Update the internal clock and return the sanitized elapsed time (ms) since the
+     * previous frame.
+     *
+     * With an explicit timestamp, dt is the real gap between samples (0 on the first
+     * frame, then clamped to [0, maxFrameGapMs]). Without one, a fixed nominal-fps step
+     * is assumed so timestamp-free callers behave exactly as the frame-based version did.
+     *
+     * @param {number} [ts]  Frame timestamp in ms.
+     * @returns {number}     Elapsed time since the previous frame, in ms.
+     */
+    _advanceClock(ts) {
+      if (typeof ts === 'number' && Number.isFinite(ts)) {
+        const dt = this._lastTs == null ? 0 : ts - this._lastTs;
+        this._lastTs = ts;
+        if (!(dt > 0)) return 0; // first frame or non-monotonic timestamp
+        return dt > this.maxFrameGapMs ? this.maxFrameGapMs : dt;
+      }
+      // No timestamp supplied: assume the nominal frame rate.
+      this._lastTs = this._lastTs == null ? 0 : this._lastTs + this._nominalDt;
+      return this._nominalDt;
     }
   }
 
@@ -358,15 +519,16 @@
   // The demo canvas is CSS-mirrored (scaleX(-1)) for natural selfie display;
   // the coordinate values themselves are never modified.
 
-  const _XV = 0.20;  // minimum horizontal extension to count as "arm extended"
-  const _YT = 0.18;  // maximum vertical deviation from shoulder height
-  const _MV = 0.60;  // minimum visibility score
+  const _XV = 0.2; // minimum horizontal extension to count as "arm extended"
+  const _YT = 0.18; // maximum vertical deviation from shoulder height
+  const _MV = 0.6; // minimum visibility score
 
   /** Checks visibility of the given landmark indices against _MV. */
-  function _v(lm, ...idx) { return idx.every(i => lm[i] && lm[i].visibility > _MV); }
+  function _v(lm, ...idx) {
+    return idx.every(i => lm[i] && lm[i].visibility > _MV);
+  }
 
   GestureLibrary.BUILTINS = {
-
     // ── Hold gestures ───────────────────────────────────────────────────────
 
     /**
@@ -375,11 +537,18 @@
      * simultaneously (T-pose satisfies both arm-extended conditions).
      */
     stop: {
-      name: 'stop', type: 'hold', label: 'Stop (T-Pose)', holdFrames: 30,
+      name: 'stop',
+      type: 'hold',
+      label: 'Stop (T-Pose)',
+      holdFrames: 30,
       check(lm) {
         if (!_v(lm, 11, 12, 15, 16)) return false;
-        return (lm[12].x - lm[16].x) > _XV && Math.abs(lm[16].y - lm[12].y) < _YT &&
-               (lm[15].x - lm[11].x) > _XV && Math.abs(lm[15].y - lm[11].y) < _YT;
+        return (
+          lm[12].x - lm[16].x > _XV &&
+          Math.abs(lm[16].y - lm[12].y) < _YT &&
+          lm[15].x - lm[11].x > _XV &&
+          Math.abs(lm[15].y - lm[11].y) < _YT
+        );
       },
     },
 
@@ -389,16 +558,19 @@
      * original mapping table (#4), where arms cross in front of the torso.
      */
     armsCrossed: {
-      name: 'armsCrossed', type: 'hold', label: 'Abbrechen (Arme gekreuzt)', holdFrames: 30,
+      name: 'armsCrossed',
+      type: 'hold',
+      label: 'Abbrechen (Arme gekreuzt)',
+      holdFrames: 30,
       check(lm) {
         if (!_v(lm, 11, 12, 15, 16, 24)) return false;
-        const rW = lm[16], lW = lm[15];
+        const rW = lm[16],
+          lW = lm[15];
         // In MediaPipe space: right wrist normally has lower x than left wrist.
         // When crossed, right wrist x exceeds left wrist x.
-        const crossed   = rW.x > lW.x;
+        const crossed = rW.x > lW.x;
         // Both wrists should be in the torso zone (below shoulders, above hips).
-        const atTorso   = rW.y > lm[12].y && rW.y < lm[24].y &&
-                          lW.y > lm[11].y && lW.y < lm[24].y;
+        const atTorso = rW.y > lm[12].y && rW.y < lm[24].y && lW.y > lm[11].y && lW.y < lm[24].y;
         return crossed && atTorso;
       },
     },
@@ -409,7 +581,10 @@
      * accumulate the vol-up counter.
      */
     confirm: {
-      name: 'confirm', type: 'hold', label: 'Bestätigen', holdFrames: 30,
+      name: 'confirm',
+      type: 'hold',
+      label: 'Bestätigen',
+      holdFrames: 30,
       check(lm) {
         if (!_v(lm, 11, 12, 15, 16)) return false;
         return lm[16].y < lm[12].y - 0.05 && lm[15].y < lm[11].y - 0.05;
@@ -422,7 +597,10 @@
      * vol-up does not accumulate.
      */
     volUp: {
-      name: 'volUp', type: 'hold', label: 'Lautstärke +', holdFrames: 20,
+      name: 'volUp',
+      type: 'hold',
+      label: 'Lautstärke +',
+      holdFrames: 20,
       conflicts: ['confirm'],
       check(lm) {
         if (!_v(lm, 0, 16)) return false;
@@ -432,7 +610,10 @@
 
     /** Vol Down – right wrist held below the right hip. */
     volDown: {
-      name: 'volDown', type: 'hold', label: 'Lautstärke -', holdFrames: 20,
+      name: 'volDown',
+      type: 'hold',
+      label: 'Lautstärke -',
+      holdFrames: 20,
       check(lm) {
         if (!_v(lm, 16, 24)) return false;
         return lm[16].y > lm[24].y + 0.05;
@@ -444,11 +625,14 @@
      * Blocked by 'stop': T-pose also satisfies this condition.
      */
     forward: {
-      name: 'forward', type: 'hold', label: 'Vorwärts →', holdFrames: 30,
+      name: 'forward',
+      type: 'hold',
+      label: 'Vorwärts →',
+      holdFrames: 30,
       conflicts: ['stop'],
       check(lm) {
         if (!_v(lm, 12, 16)) return false;
-        return (lm[12].x - lm[16].x) > _XV && Math.abs(lm[16].y - lm[12].y) < _YT;
+        return lm[12].x - lm[16].x > _XV && Math.abs(lm[16].y - lm[12].y) < _YT;
       },
     },
 
@@ -457,11 +641,14 @@
      * Blocked by 'stop' for the same reason as 'forward'.
      */
     backward: {
-      name: 'backward', type: 'hold', label: '← Rückwärts', holdFrames: 30,
+      name: 'backward',
+      type: 'hold',
+      label: '← Rückwärts',
+      holdFrames: 30,
       conflicts: ['stop'],
       check(lm) {
         if (!_v(lm, 11, 15)) return false;
-        return (lm[15].x - lm[11].x) > _XV && Math.abs(lm[15].y - lm[11].y) < _YT;
+        return lm[15].x - lm[11].x > _XV && Math.abs(lm[15].y - lm[11].y) < _YT;
       },
     },
 
@@ -470,17 +657,18 @@
      * Uses the previous history frame to measure per-frame displacement.
      */
     pause: {
-      name: 'pause', type: 'hold', label: 'Pause (Stillstand)', holdFrames: 45,
+      name: 'pause',
+      type: 'hold',
+      label: 'Pause (Stillstand)',
+      holdFrames: 45,
       check(lm, history) {
         if (!_v(lm, 0, 11, 12, 16, 24)) return false;
         if (history.length < 2) return false;
-        const prev    = history[history.length - 2];
-        const rW      = lm[16];
-        const moved   = Math.abs(rW.x - prev[16].x) + Math.abs(rW.y - prev[16].y);
+        const prev = history[history.length - 2];
+        const rW = lm[16];
+        const moved = Math.abs(rW.x - prev[16].x) + Math.abs(rW.y - prev[16].y);
         const centerX = (lm[11].x + lm[12].x) / 2;
-        const inZone  = rW.y > lm[0].y &&
-                        rW.y < lm[24].y - 0.05 &&
-                        Math.abs(rW.x - centerX) < 0.15;
+        const inZone = rW.y > lm[0].y && rW.y < lm[24].y - 0.05 && Math.abs(rW.x - centerX) < 0.15;
         return moved < 0.008 && inZone;
       },
     },
@@ -489,41 +677,47 @@
 
     /** Scroll Up – right wrist moves quickly upward. */
     scrollUp: {
-      name: 'scrollUp', type: 'velocity', label: 'Scroll ↑',
+      name: 'scrollUp',
+      type: 'velocity',
+      label: 'Scroll ↑',
       check(lm, history) {
         const H = 15;
         if (history.length < H) return false;
         const s = history.slice(-H);
         if (!s.every(f => f[16].visibility > _MV)) return false;
         const oldY = _avg(s.slice(0, 5).map(f => f[16].y));
-        const newY = _avg(s.slice(-5).map(f  => f[16].y));
+        const newY = _avg(s.slice(-5).map(f => f[16].y));
         return oldY - newY > 0.18;
       },
     },
 
     /** Scroll Down – right wrist moves quickly downward. */
     scrollDown: {
-      name: 'scrollDown', type: 'velocity', label: 'Scroll ↓',
+      name: 'scrollDown',
+      type: 'velocity',
+      label: 'Scroll ↓',
       check(lm, history) {
         const H = 15;
         if (history.length < H) return false;
         const s = history.slice(-H);
         if (!s.every(f => f[16].visibility > _MV)) return false;
         const oldY = _avg(s.slice(0, 5).map(f => f[16].y));
-        const newY = _avg(s.slice(-5).map(f  => f[16].y));
+        const newY = _avg(s.slice(-5).map(f => f[16].y));
         return newY - oldY > 0.18;
       },
     },
 
     /** Zoom In – both wrists move closer together. */
     zoomIn: {
-      name: 'zoomIn', type: 'velocity', label: 'Zoom +',
+      name: 'zoomIn',
+      type: 'velocity',
+      label: 'Zoom +',
       check(lm, history) {
         const H = 20;
         if (history.length < H) return false;
         const s = history.slice(-H);
         if (!s.every(f => Math.min(f[15].visibility, f[16].visibility) > _MV)) return false;
-        const d    = f => Math.hypot(f[15].x - f[16].x, f[15].y - f[16].y);
+        const d = f => Math.hypot(f[15].x - f[16].x, f[15].y - f[16].y);
         const oldD = _avg(s.slice(0, 5).map(d));
         const newD = _avg(s.slice(-5).map(d));
         return oldD - newD > 0.15;
@@ -532,13 +726,15 @@
 
     /** Zoom Out – both wrists move further apart. */
     zoomOut: {
-      name: 'zoomOut', type: 'velocity', label: 'Zoom −',
+      name: 'zoomOut',
+      type: 'velocity',
+      label: 'Zoom −',
       check(lm, history) {
         const H = 20;
         if (history.length < H) return false;
         const s = history.slice(-H);
         if (!s.every(f => Math.min(f[15].visibility, f[16].visibility) > _MV)) return false;
-        const d    = f => Math.hypot(f[15].x - f[16].x, f[15].y - f[16].y);
+        const d = f => Math.hypot(f[15].x - f[16].x, f[15].y - f[16].y);
         const oldD = _avg(s.slice(0, 5).map(d));
         const newD = _avg(s.slice(-5).map(d));
         return newD - oldD > 0.15;
@@ -551,22 +747,29 @@
      * fires when the running x-average decreases by more than the threshold.
      */
     swipeRight: {
-      name: 'swipeRight', type: 'velocity', label: 'Wischen → (Schnell)',
+      name: 'swipeRight',
+      type: 'velocity',
+      label: 'Wischen → (Schnell)',
       check(lm, history) {
         const H = 15;
         if (history.length < H) return false;
         const s = history.slice(-H);
         if (!s.every(f => f[16].visibility > _MV)) return false;
         const oldX = _avg(s.slice(0, 5).map(f => f[16].x));
-        const newX = _avg(s.slice(-5).map(f  => f[16].x));
+        const newX = _avg(s.slice(-5).map(f => f[16].x));
         return oldX - newX > 0.15;
       },
     },
-
   };
 
   // ── Export ──────────────────────────────────────────────────────────────────
 
+  // Browser: attach to the global object so <script> tags expose GestureLibrary.
   global.GestureLibrary = GestureLibrary;
 
+  // Node (tests, tooling): also expose via CommonJS. Guarded with typeof so the
+  // browser build — which has no module system — is completely unaffected.
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = GestureLibrary;
+  }
 })(typeof window !== 'undefined' ? window : globalThis);
